@@ -102,7 +102,7 @@ To let SerialEM access this environment, we have to adjust the *SerialEM_propert
 
 ## Installation
 
-To install SPACEtomo, simply unpack the *SPACEtomo.zip* and make note of the path to the folder. This folder contains all scripts but still requires the deep learning models.
+To install SPACEtomo, simply download and unpack the repository on the PC running SerialEM, and make note of the path to the folder. This folder contains all scripts but still requires the deep learning models.
 Download the [lamella detection model](https://doi.org/10.5281/zenodo.10360489) and the [lamella segmentation model (Yeast)](https://doi.org/10.5281/zenodo.10360540) and extract them into the *SPACEtomo* folder. You should now have a *XXX_yolo8.pt* file and a *model* folder with 5 subfolders in your *SPACEtomo* folder.
 
 Copy the *SPACEtomo.py* script into a SerialEM script window and adjust the *SPACE_DIR* setting to the path of the *SPACEtomo* folder.
