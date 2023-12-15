@@ -266,6 +266,13 @@ Release!
 
 [SPACEtomo training dataset for Yeast lamella map segmentation using nnU-Netv2](https://doi.org/10.5281/zenodo.10360344)
 
+There is no straight forward way yet to label your own data yet. For the input of a [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) model you will need an image file and a segmentation file with a particular pixel value for each class. You can find further instructions [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/dataset_format.md).
+
+For my training set, I used Photoshop to segment different classes on different layers by hand. I saved each layer as png file separately and used a Python script to combine these images into a single segmentation image.
+Another script would take these segmentations and output layer images that I could then edit and refine in Photoshop for retraining.
+
+This is not ideal and I will work on making a more streamlined labeling workflow in the future.
+
 ## Acknowledgements
 
 I want to thank all the people who provided training data for the deep learning models:
