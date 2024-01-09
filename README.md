@@ -52,6 +52,8 @@ If everything goes well, you can install all dependencies by downloading the *SP
 
 This may take 10-20+ minutes to collect all the packages. If it fails or you are impatient you can install the packages manually step by step.
 
+WARNING: This assumes the presence of a GPU in the SerialEM computer. In principle, it should be possible to get SPACEtomo working without a GPU on the SerialEM computer, but I did not have a chance to test it and provide installation instructions for this case yet.
+
 ### Manual setup
 <details>
   <summary>Details</summary>
@@ -226,7 +228,7 @@ Depending on your setup, the GPU on the computer running SerialEM might not be p
 
 To process MM maps on an external machine with a better GPU you can specify an *external_map_dir* in the settings of the [SPACEtomo.py](SPACEtomo.py) script. This directory has to be accessible via the network both by the computer running SerialEM and by the external GPU machine.
 
-The external GPU machine requires the same Python packages as described above and a copy of the SPACEtomo folder. Open the [SPACEtomo_monitor.py](SPACEtomo_monitor.py) script and adjust the *external_map_dir* accordingly.
+The external GPU machine requires the same Python packages as described above and a copy of the SPACEtomo folder (but no SerialEM). Open the [SPACEtomo_monitor.py](SPACEtomo_monitor.py) script and adjust the *external_map_dir* accordingly.
 
 You can then simply activate the conda environment and run the monitor script:
 
@@ -268,10 +270,12 @@ Release!
 
 There is no straight forward way yet to label your own data yet. For the input of a [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) model you will need an image file and a segmentation file with a particular pixel value for each class. You can find further instructions [here](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/dataset_format.md).
 
-For my training set, I used Photoshop to segment different classes on different layers by hand. I saved each layer as png file separately and used a Python script to combine these images into a single segmentation image.
+For my training set, I used Photoshop to segment different classes on different layers by hand. Why Photoshop? My main reason was the support for comfortable labeling using a drawing tablet with pressure sensitiviy. I saved each layer as png file separately and used a Python script to combine these images into a single segmentation image.
 Another script would take these segmentations and output layer images that I could then edit and refine in Photoshop for retraining.
 
-This is not ideal and I will work on making a more streamlined labeling workflow in the future.
+[Napari](https://napari.org/) might be better suited for your case. [OpenFIBSEM](https://github.com/DeMarcoLab/fibsem/blob/main/docs/ml_details.md) includes a Napari-based labelling workflow that can be adapted for nnU-Net. 
+
+My goal is to work on making a more streamlined labeling workflow similar to this in the future.
 
 ## Acknowledgements
 
