@@ -37,7 +37,6 @@ os.environ["nnUNet_raw"] = CUR_DIR
 os.environ["nnUNet_preprocessed"] = CUR_DIR
 os.environ["nnUNet_results"] = CUR_DIR
 
-device = torch.device('cuda')
 from nnunetv2.inference import predict_from_raw_data as predict
 
 # Start log file
@@ -112,7 +111,10 @@ else:
     logging.info("Using whole montage map...")
 
 # Setup input and output for nnUNet
-input_img = np.array(crop, dtype=np.float16)[np.newaxis, np.newaxis, :, :]
+device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu') # dynamically set device
+is_cuda_device = True if device.type == "cuda" else False 
+dtype=np.float16 if is_cuda_device else np.float32  # half precision for cuda only
+input_img = np.array(crop, dtype=dtype)[np.newaxis, np.newaxis, :, :]
 
 # Use temp name to pad later
 if bounds is None:
@@ -123,7 +125,7 @@ else:
 # Do nnUNet inference
 predictor = predict.nnUNetPredictor(
     tile_step_size=0.5,
-    perform_everything_on_gpu=True,
+    perform_everything_on_gpu=is_cuda_device,
     device=device,
     allow_tqdm=False
 )
