@@ -3,7 +3,7 @@
 Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a set of SerialEM and Python scripts to fully automate the cryoET data collection workflow.
 Please refer to the [publication](#) for more details.
 
-<img src="img/space_black_v2.png" width="600" alt="SPACEtomo" />
+<img src="img/space_black_v3.png" width="600" alt="SPACEtomo" />
 
 ### Note
 
@@ -247,6 +247,9 @@ Coming as soon as possible!
 ## Troubleshooting
 
 - In case your lamella montages don't stitch properly, you might need to experiment with the SerialEM montage settings.
+- If you get an error saying something like ```unexpected keyword argument 'perform_everything_on_XXX```:
+  - nnUNet changed the name of the argument recently from ```perform_everyhing_on_gpu``` to ```perform_everything_on_device```.
+  - Please try to change it accordingly in the *SPACEtomo_nnUNet.py* script and try running it again.
 - To be continued...
 
 ## Recent Changes
