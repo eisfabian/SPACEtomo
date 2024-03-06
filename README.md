@@ -146,38 +146,38 @@ If you intend to do a [coma-free alignment](https://bio3d.colorado.edu/SerialEM/
 All settings are adjusted in the *SPACEtomo.py* script. 
 
 The most important settings for daily use are the targeting settings:
-- The *target_list* includes all classes of the segmentation that are targeted. Examples for all classes can be found [here](img/class_examples.png).
-- The *avoid_list* includes all classes that should be avoided.
-- The *target_score_threshold* can be adjusted to reduce the number of targets. The score is calculated from the overlap of the camera field of view with the segmented classes. A desired class in the center of the camera is upweighted. Generally, larger targets (e.g. nucleus or cell) are more robust to higher thresholds.
-- *sparse_targets* is a useful target selection mode for small targets like mitos or vesicles. If set to *False*, a rigid grid of points is used for initial target selection, which is more suited to large target areas.
-- *target_edge* can be used to target the edges of a segmented class. This could be useful for membrane structure studies (e.g. NPCs).
-- *penalty_weight*: Factor to downweight the classes of the *avoid_list* relative to the classes of the *target_list*.
-- *max_iterations*: Maximum number of iterations for the target setup optimization.
-- If you want to add an extra target for the tracking tilt series that does not contain your desired class you can set *extra_tracking* to *True*.
+- The ```target_list``` includes all classes of the segmentation that are targeted. Examples for all classes can be found [here](img/class_examples.png).
+- The ```avoid_list``` includes all classes that should be avoided.
+- The ```target_score_threshold``` can be adjusted to reduce the number of targets. The score is calculated from the overlap of the camera field of view with the segmented classes. A desired class in the center of the camera is upweighted. Generally, larger targets (e.g. nucleus or cell) are more robust to higher thresholds.
+- ```sparse_targets``` is a useful target selection mode for small targets like mitos or vesicles. If set to ```False```, a rigid grid of points is used for initial target selection, which is more suited to large target areas.
+- ```target_edge``` can be used to target the edges of a segmented class. This could be useful for membrane structure studies (e.g. NPCs).
+- ```penalty_weight```: Factor to downweight the classes of the ```avoid_list``` relative to the classes of the ```target_list```.
+- ```max_iterations```: Maximum number of iterations for the target setup optimization.
+- If you want to add an extra target for the tracking tilt series that does not contain your desired class you can set ```extra_tracking = True```.
 
 <details>
   <summary>Workflow settings should remain mostly unchanged after being set once. They include the image state settings, aperture control, montage tile overlaps and thresholds.</summary>
 
-- *SPACE_DIR*: Path to the SPACEtomo folder containing the models and scripts.
-- *automation_level*: Level 1-5 from only taking the WG map to starting the PACEtomo batch acquisition.
-- *plot*: Save plots of intermediate steps (mainly during target selection).
-- *aperture_control*: [Does SerialEM have control over the apertures](https://bio3d.colorado.edu/SerialEM/hlp/html/setting_up_serialem.htm#apertures)?
-- *objective_aperture*: Size of objective aperture to be inserted when leaving LM.
-- *WG_image_state*: Image state index used for LM map
-- *MM_image_state*: Image state index used for Low Dose mode tilt series acquisition.
-- *WG_offset_via_IM*: Use an intermediate magnification to keep track of lamella when switching image states.
-- *IM_mag_index*: The mag index (e.g. 10) of the intermediate magnification or the magnification itself (e.g. 580).
-- *MM_padding_factor*: MM maps are padded by this factor compared to the lamella bounding box. This accounts for the coordinates being off center or the bounding box prediction being off.
-- *MM_mean_threshold*: If the first View image of a lamella is below this threshold (black), the user will be prompted to manually adjust the position. Set to 0 to avoid a user prompt.
-- *WG_montage_overlap*: Overlap between neighboring tiles of the LM map for stitching.
-- *MM_montage_overlap*: Overlap between neighboring tiles of the MM map for stitching. Good stitching is especially important here for reliable target selection.
-- *WG_detection_threshold*: YOLOv8 confidence threshold for considering a hit a lamella. Raise this value if you have a lot of false positives.
-- *max_tilt*: This is the maximum tilt angle during a tilt series. It is used to calculate target spacing without any beam overlap. You can use lower values if you don't care about high angle overlaps and rather have more targets.
-- *tolerance*: If two targets are overlapping each other below this threshold, they are moved away from each other. If the overlap is larger than this, one of them is deleted.
+- ```SPACE_DIR```: Path to the SPACEtomo folder containing the models and scripts.
+- ```automation_level```: Level 1-5 from only taking the WG map to starting the PACEtomo batch acquisition.
+- ```plot```: Save plots of intermediate steps (mainly during target selection).
+- ```aperture_control```: [Does SerialEM have control over the apertures](https://bio3d.colorado.edu/SerialEM/hlp/html/setting_up_serialem.htm#apertures)?
+- ```objective_aperture```: Size of objective aperture to be inserted when leaving LM.
+- ```WG_image_state```: Image state index used for LM map
+- ```MM_image_state```: Image state index used for Low Dose mode tilt series acquisition.
+- ```WG_offset_via_IM```: Use an intermediate magnification to keep track of lamella when switching image states.
+- ```IM_mag_index```: The mag index (e.g. 10) of the intermediate magnification or the magnification itself (e.g. 580).
+- ```MM_padding_factor```: MM maps are padded by this factor compared to the lamella bounding box. This accounts for the coordinates being off center or the bounding box prediction being off.
+- ```MM_mean_threshold```: If the first View image of a lamella is below this threshold (black), the user will be prompted to manually adjust the position. Set to 0 to avoid a user prompt.
+- ```WG_montage_overlap```: Overlap between neighboring tiles of the LM map for stitching.
+- ```MM_montage_overlap```: Overlap between neighboring tiles of the MM map for stitching. Good stitching is especially important here for reliable target selection.
+- ```WG_detection_threshold```: YOLOv8 confidence threshold for considering a hit a lamella. Raise this value if you have a lot of false positives.
+- ```max_tilt```: This is the maximum tilt angle during a tilt series. It is used to calculate target spacing without any beam overlap. You can use lower values if you don't care about high angle overlaps and rather have more targets.
+- ```tolerance```: If two targets are overlapping each other below this threshold, they are moved away from each other. If the overlap is larger than this, one of them is deleted.
   
 </details>
 
-The *external_map_dir* setting can be used when running the segmentation inference on an external machine ([see below](#external-inference)).
+The ```external_map_dir``` setting can be used when running the segmentation inference on an external machine ([see below](#external-inference)).
 
 The *SPACEtomo_config.py* only needs adjustment when updating the deep learning models.
 
@@ -207,8 +207,11 @@ You can run SPACEtomo at different automation levels. It will stop after reachin
 #### Level 5: Acquisition
 
 * The highest level of automation will start SerialEM's [Acquire at Items](https://bio3d.colorado.edu/SerialEM/hlp/html/hidd_navacquire.htm) routine. Make sure to set it up accordingly in advance.
-* You have to select the [PACEtomo.py](https://github.com/eisfabian/PACEtomo/) script as the *Primary Action* and make sure that the PACEtomo settings in the script have been set appropiately.
-* Additionally, you have to set the [SPACEtomo_postAction.py](https://github.com/eisfabian/SPACEtomo/) script as *Run Script after Action*. This script will monitor any finishing lamella segmentations that were not ready for target setup before the PACEtomo acquisition started.
+* You have to select the [PACEtomo.py](https://github.com/eisfabian/PACEtomo/) script as the *Primary Action* and make sure that the PACEtomo settings in the script have been set appropiately. Especially consider these settings when running SPACEtomo:
+	 * If you want to use the by SPACEtomo automatically determined geo points for sample geometry measurement, set ```measureGeo = True```.
+	 * Set the apropiate ```pretilt``` and ```rotation``` values if you don't want to measure the geometry.
+	 * Set ```previewAli = False``` and ```viewAli = True``` because SPACEtomo generates view mag virtual maps of all targets.
+* Additionally, you have to set the [SPACEtomo_postAction.py](https://github.com/eisfabian/SPACEtomo/) script as ```Run Script after Action```. This script will monitor any finishing lamella segmentations that were not ready for target setup before the PACEtomo acquisition started.
 
 ### Output
 
