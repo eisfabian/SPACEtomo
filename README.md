@@ -148,7 +148,7 @@ All settings are adjusted in the *SPACEtomo.py* script.
 The most important settings for daily use are the targeting settings:
 - The ```target_list``` includes all classes of the segmentation that are targeted. Examples for all classes can be found [here](img/class_examples.png).
 - The ```avoid_list``` includes all classes that should be avoided.
-- The ```target_score_threshold``` can be adjusted to reduce the number of targets. The score is calculated from the overlap of the camera field of view with the segmented classes. A desired class in the center of the camera is upweighted. Generally, larger targets (e.g. nucleus or cell) are more robust to higher thresholds.
+- The ```target_score_threshold``` can be adjusted to reduce the number of targets. The score is calculated from the overlap of the camera field of view with the segmented classes. The score is not linear, but ranges from 0 to 1, from no target area in the FOV to the FOV being completely covered. A desired class in the center of the camera is upweighted. Generally, larger targets (e.g. nucleus or cell) are more robust to higher thresholds. Classes to be avoided in the FOV can cause a negative score.
 - ```sparse_targets``` is a useful target selection mode for small targets like mitos or vesicles. If set to ```False```, a rigid grid of points is used for initial target selection, which is more suited to large target areas.
 - ```target_edge``` can be used to target the edges of a segmented class. This could be useful for membrane structure studies (e.g. NPCs).
 - ```penalty_weight```: Factor to downweight the classes of the ```avoid_list``` relative to the classes of the ```target_list```.
