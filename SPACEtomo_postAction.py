@@ -2,16 +2,17 @@
 # ===================================================================
 #ScriptName SPACEtomo_postAction
 # Purpose:      Post action script to setup targets from SPACEtomo runs.
-#               More information at http://github.com/eisfabian/SPACEtomo
+#               More information at http://github.com/eisfabian/PACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2023/07/13
-# Revision:     v1.0beta
-# Last Change:  2023/11/12: fixes after Krios test
+# Revision:     v1.1
+# Last Change:  2024/04/10: fixed typo
 # ===================================================================
 
 import serialem as sem
 import os
 import sys
+import glob
 
 CUR_DIR = sem.ReportDirectory()
 
@@ -25,7 +26,7 @@ else:
 # Check if external processing directory is valid
 MM_external = False
 if external_map_dir == "":
-    MAP_DIR = CUR_DIR
+    MAP_DIR = os.path.join(CUR_DIR, "SPACE_maps")
 else:
     if os.path.exists(external_map_dir):
         MAP_DIR = external_map_dir
@@ -37,103 +38,84 @@ else:
 # Import SPACE functions (needs SPACE folder from settings file)
 sys.path.insert(len(sys.path), SPACE_DIR)
 import SPACEtomo_functions as space
+import SPACEtomo_functions_ext as space_ext
 
 # Instantiate mic params from settings
-mic_params = space.MicParams(WG_image_state, IM_mag_index, MM_image_state)
+mic_params = space_ext.MicParams_ext(CUR_DIR)
 
-# Load model
-MM_model = space.MMModel()
+# Load models
+WG_model = space_ext.WGModel()
+MM_model = space_ext.MMModel()
+MM_model.setDimensions(mic_params)
+
+# Instantiate tgt params from settings
+tgt_params = space_ext.TgtParams(file_dir=CUR_DIR, MM_model=MM_model)
 
 # Update SPACE runs and queue
 if not MM_external:
-    space.queueSpaceRun(MM_model)
+    space_ext.updateQueue(MAP_DIR, WG_model, MM_model, mic_params, tgt_params, save_plot=save_plot)
 
-# Make list of finished SPACE runs
-if os.path.exists(os.path.join(MAP_DIR, "SPACE_runs.txt")):
-    with open(os.path.join(MAP_DIR, "SPACE_runs.txt"), "r") as f:
-        space_lines = f.readlines()
-else:
-    sem.Echo("ERROR: No SPACE runs file was found. No targets were set up.")
-    sem.Exit()
+# Check for unprocessed point files
+point_files = sorted(glob.glob(os.path.join(MAP_DIR, "*_points*.json")))
+tgt_files = sorted(glob.glob(os.path.join(CUR_DIR, "*tgts.txt")))
 
-space_maps = []
-active_runs = []
-for line in space_lines:
-    map_name = os.path.splitext(os.path.basename(line))[0]
-    map_seg = os.path.join(MAP_DIR, map_name + "_seg.png")
-    map_tgt = os.path.join(CUR_DIR, map_name + "_tgts.txt")
-    if not os.path.exists(map_seg):
-        active_runs.append(map_name)
-    elif not os.path.exists(map_tgt):
-        sem.Echo("SPACEtomo [" + line + "] run finished!")
-        space_maps.append(map_name)
+unprocessed_point_files = []
+for point_file in point_files:
+    map_name = os.path.basename(point_file).split("_points")[0]
+    if map_name not in [os.path.basename(tgt_file).split("_tgts")[0] for tgt_file in tgt_files]:
+        unprocessed_point_files.append(point_file)
+
+# Check for unprocessed maps
+mm_list, seg_list, wg_list  = space_ext.monitorFiles(MAP_DIR)
+
+# Check for areas still to be acquired
+num_acq, *_ = sem.ReportNumNavAcquire()
+
+# Check if collection would stop
+if num_acq == 0 and len(unprocessed_point_files) == 0:
+    # Check if there will be further point files generated
+    if len(mm_list) > 0 or len(seg_list) > 0:
+        # Wait for another segmentation to be processed
+        start_len_seg = len(seg_list)
+        while len(seg_list) >= start_len_seg:
+            sem.Echo("Waiting for next prediction before setting up targets...")
+            sem.Delay(60, "s")
+            if not MM_external:
+                space_ext.updateQueue(MAP_DIR, WG_model, MM_model, mic_params, tgt_params, save_plot=save_plot)
+            mm_list, seg_list, wg_list  = space_ext.monitorFiles(MAP_DIR)
+
+        # Get point files that were not found previously
+        point_files_new = sorted(glob.glob(os.path.join(MAP_DIR, "*_points*.json")))
+        unprocessed_point_files = point_files_new - point_files
+
+# Set up targets for unprocessed point_files
+for point_file in unprocessed_point_files:
+    map_name = os.path.basename(point_file).split("_points")[0]
+
+    if wait_for_inspection:
+        inspected = os.path.exists(os.path.join(MAP_DIR, map_name + "_inspected.txt"))
     else:
-        sem.Echo("Targets file for " + line + " already exists. Skipping...")
+        inspected = True
 
-# Check if any targets are remaining and wait for next segmentation if not
-if len(space_maps) > 0:
-    sem.Echo("Setting up targets for " + str(len(space_maps)) + " lamellae...")
-else:
-    num_acq, *_ = sem.ReportNumNavAcquire()
-    while num_acq == 0 and len(space_maps) == 0 and len(active_runs) > 0:
-        sem.Echo("Waiting for next prediction before setting up targets...")
-        sem.Delay(60, "s")
-        if not MM_external:
-            space.queueSpaceRun(MM_model)
-        for map_name in active_runs:
-            map_seg = os.path.join(MAP_DIR, map_name + "_seg.png")
-            if os.path.exists(map_seg):
-                space_maps.append(map_name)
+    if not inspected:
+        sem.Echo("")
+        sem.Echo("WARNING: " + map_name + " targets are still waiting for inspection! Skipping...")
+        continue
 
-    # Check again in case results were added
-    if len(space_maps) == 0:
-        if len(active_runs) > 0:
-            sem.Echo("Target setup for remaining " + str(len(active_runs)) + " lamellae postponed until predictions are available.")
-        else:
-            sem.Echo("All lamellae have been set up and no more predictions are running.")
-        sem.Exit()
+    sem.Echo("")
+    sem.Echo("Setting up targets for " + map_name + "...")
 
-# Get microscope parameters
-sem.GoToLowDoseArea("V")
-mic_params.getViewParams()
-sem.GoToLowDoseArea("R")
-mic_params.getRecParams()
-MM_model.setDimensions(mic_params)
-
-# Set up common parameters
-weight_mask, edge_weight_masks = space.makeScoreWeights(MM_model, target_edge)
-grid_vecs = space.findGridVecs(MM_model, max_tilt, mic_params)
-
-# Loop over all MM maps
-for m, map_name in enumerate(space_maps):           # adjusted from main script
+    # Load map from nav
     map_id = int(sem.NavIndexWithNote(map_name + ".mrc"))
     sem.LoadOtherMap(map_id)
     buffer, *_ = sem.ReportCurrentBuffer()
 
-    sem.Echo("")
-    sem.Echo("Setting up targets for " + map_name + "...")
-    
-    # Instantiate lamella and find points
-    lamella = space.Lamella(map_name, MAP_DIR, target_list, avoid_list, MM_model, weight_mask, edge_weight_masks, grid_vecs, mic_params, max_tilt)
-    lamella.findPoints(sparse_targets, penalty_weight, target_score_threshold, max_iterations)
-
-    if len(lamella.points) == 0:
-        sem.Echo("WARNING: No targets found!")
-        sem.Echo("If you visually identified targets, please adjust your settings or add them manually!")
-        # Write empty PACE target file
-        lamella.saveAsTargets(buffer, penalty_weight)
-        continue
-    
-    sem.Echo("Final targets: " + str(len(lamella.points)))
-    sem.Echo("Saving overview image...")
-    lamella.plotTargets(tracking_id=0, overlay=lamella.target_mask, save=os.path.join(CUR_DIR, map_name + "_" + target_list[0] +"_targets.png"))
-    sem.Echo("Saved at " + os.path.join(CUR_DIR, map_name + "_targets_" + target_list[0] + ".png"))
-
-    # Find geo points for sample geometry measurement
-    lamella.findGeoPoints()
-
     # Save targets for PACEtomo
-    lamella.saveAsTargets(buffer, penalty_weight)
+    space.saveAsTargets(buffer, MAP_DIR, map_name, MM_model, mic_params)
 
 num_acq, *_ = sem.ReportNumNavAcquire()
 sem.Echo("Continuing PACEtomo acquisition of " + str(int(num_acq)) + " areas!")
+
+# Start acquisition if not already running
+if not sem.ReportIfNavAcquiring()[0]:
+    sem.StartNavAcquireAtEnd()

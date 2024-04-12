@@ -2,11 +2,11 @@
 # ===================================================================
 # ScriptName:   SPACEtomo_config
 # Purpose:      Configurations for deep learning models used in SPACEtomo.
-#               More information at http://github.com/eisfabian/SPACEtomo
+#               More information at http://github.com/eisfabian/PACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
-# Revision:     v1.0beta
-# Last Change:  2023/10/04: outsourcing of settings from main SPACEtomo script
+# Revision:     v1.1
+# Last Change:  2024/03/12: removed max_runs
 # ===================================================================
 
 # Model specific settings (depend on how the model was trained)
@@ -23,4 +23,3 @@ MM_model_script = "SPACEtomo_nnUNet.py"
 MM_model_folder = "model"
 MM_model_folds = [0, 1, 2, 3, 4]
 MM_model_pix_size = 22.83 / 10  # nm / px
-MM_model_max_runs = 1

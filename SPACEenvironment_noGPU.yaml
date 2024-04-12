@@ -1,0 +1,12 @@
+name: SerialEM_SPACEtomo_noGPU
+channels:
+ - conda-forge
+ - pytorch
+dependencies:
+ - python=3.9
+ - scipy=1.12.0
+ - scikit-image=0.22.0
+ - mrcfile=1.5.0
+ - pip
+ - pip:
+   - dearpygui==1.11.1
