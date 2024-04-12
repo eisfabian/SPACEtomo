@@ -310,7 +310,9 @@ SPACEtomo on the SerialEM computer will keep checking the map dir for new coordi
 
 ## Video Tutorials
 
-Coming as soon as possible!
+[![SPACE-tomo: Target Selection GUI](https://img.youtube.com/vi/I5yvi0sUGG4/0.jpg)](https://www.youtube.com/watch?v=I5yvi0sUGG4)
+
+More coming as soon as possible!
 
 ## Troubleshooting
 
