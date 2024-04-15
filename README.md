@@ -310,7 +310,7 @@ SPACEtomo on the SerialEM computer will keep checking the map dir for new coordi
 
 ## Video Tutorials
 
-[![SPACE-tomo: Target Selection GUI](https://img.youtube.com/vi/I5yvi0sUGG4/0.jpg)](https://www.youtube.com/watch?v=I5yvi0sUGG4)
+[![SPACE-tomo: Target Selection GUI](img/SPACE_tut_thumbnail_tgt.png)](https://www.youtube.com/watch?v=I5yvi0sUGG4)
 
 More coming as soon as possible!
 
@@ -377,4 +377,5 @@ I want to thank all the people who provided training data for the deep learning 
 - Gregor Weiss (ETH Zurich)
 - Yoshiyuki Fukuda (Tokushima University / University of Tokyo)
 
-I want to thank Patrick Cleeve for his contributions and everyone who gave me feedback and gave SPACEtomo a try!
+Thanks to all the members of the Pilhofer lab who let me troubleshoot SPACEtomo on their samples!
+I also want to thank Patrick Cleeve for his contributions and everyone who gave me feedback and gave SPACEtomo a try!
