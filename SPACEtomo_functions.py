@@ -207,7 +207,7 @@ def findOffset(grid_name, map_dir, lamella_ids, initial_bboxes, mic_params, mode
         bboxes = sorted(bboxes, key=lambda x: np.linalg.norm(np.array([(x[0] + x[2]) / 2,(x[1] + x[3]) / 2]) - np.array([model.sidelen // 2, model.sidelen // 2])))     # sort according to distance from center
 
         for bbox in bboxes:
-            sem.Echo("Lamella bounding box: " +  str(bbox))
+            #sem.Echo("Lamella bounding box: " +  str(bbox))
             sem.Echo("Lamella was categorized as: " + model.categories[int(bbox[4])] + " (" + str(round(bbox[5] * 100, 1)) + " %)")
 
             center = [(bbox[0] + bbox[2]) / 2,(bbox[1] + bbox[3]) / 2]
@@ -449,7 +449,7 @@ class MicParams:
 
         self.view_c2ssMatrix = np.array(sem.CameraToSpecimenMatrix(0)).reshape((2, 2))
         self.view_ta_rotation = 90 - np.degrees(np.arctan(self.view_c2ssMatrix[0, 1] / self.view_c2ssMatrix[0, 0]))
-        sem.Echo("Tilt axis rotation: " + str(self.view_ta_rotation))
+        sem.Echo("Tilt axis rotation: " + str(round(self.view_ta_rotation, 2)))
         self.view_rotM = np.array([[np.cos(np.radians(self.view_ta_rotation)), np.sin(np.radians(self.view_ta_rotation))], [-np.sin(np.radians(self.view_ta_rotation)), np.cos(np.radians(self.view_ta_rotation))]])
 
     def getRecParams(self):
@@ -682,7 +682,8 @@ def changeNavPtsToMaps(nav_ids, nav_maps, nav_virt_maps_stats):
     # Make copy of view template entry
     template = copy.deepcopy(nav_items[template_id - 1])
     template.pop("RawStageXY")
-    template.pop("SamePosId")
+    if "SamePosId" in template.keys():
+        template.pop("SamePosId")
 
     # Determine image dimenstions for polygons
     ptsDX = np.array(np.array(template["PtsX"], dtype=float) - float(template["StageXYZ"][0]))

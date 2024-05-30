@@ -290,7 +290,7 @@ for grid_slot in remaining_grid_list:
         inspected = not wait_for_inspection
 
         # Open tgt selection GUI if wait_for_inspection is selected and maps are not external
-        if len(point_files) > 0 and wait_for_inspection and not external:
+        if ((len(point_files) > 0 and wait_for_inspection) or manual_selection) and not external:
             DETACHED_PROCESS = 0x00000008           # From here: https://stackoverflow.com/questions/89228/calling-an-external-command-in-python#2251026
             subprocess.Popen(["python", os.path.join(SPACE_DIR, "SPACEtomo_tgt.py"), MAP_DIR], creationflags=DETACHED_PROCESS)
 
