@@ -1,7 +1,7 @@
 # SPACEtomo
 
 Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a set of SerialEM and Python scripts to fully automate the cryoET data collection workflow.
-Please refer to the [publication](#) for more details.
+Please refer to the [publication](https://www.biorxiv.org/content/10.1101/2023.12.14.571776v1.full) for more details.
 
 <img src="img/SPACEtomo_logo.png" width="600" alt="SPACEtomo" />
 
@@ -28,8 +28,8 @@ SPACEtomo allows for a variety of automation levels applicable to a range of sam
 - [Video tutorials](#video-tutorials)
 - [Troubleshooting](#troubleshooting)
 - [Recent changes](#recent-changes)
-- [Training Data](#training-data)
 - [Future plans](#future-plans)
+- [Training Data](#training-data)
 
 ## Hardware
 
@@ -164,7 +164,7 @@ The "High-Defocus Mag" and especially the "High-Defocus IS" calibrations also he
 
 The magnifications I use are 82x for LM, 580x for IM and 4800x for MM.
 
-If you intend to do a [coma-free alignment](https://bio3d.colorado.edu/SerialEM/hlp/html/menu_focus.htm#hid_focus_coma_by_ctf) and a [coma vs image shift calibration](https://bio3d.colorado.edu/SerialEM/hlp/html/menu_calibration.htm#hid_focustuning_comavs), this should be done prior to running SPACEtomo ideally on a carbon support foil grid.
+If you intend to do a [coma-free alignment](https://bio3d.colorado.edu/SerialEM/hlp/html/menu_focus.htm#hid_focus_coma_by_ctf) and a [coma vs image shift calibration](https://bio3d.colorado.edu/SerialEM/hlp/html/hidd_coma_vs_is_cal.htm), this should be done prior to running SPACEtomo ideally on a carbon support foil grid.
 
 <details>
     <summary>Further recomendations for SerialEM setup</summary>
@@ -192,7 +192,7 @@ The most important settings for the first setup that remain mostly unchanged fro
 The settings that will typically change from run to run are:
 
 - ```automation_level```: Level 1-5 from only taking the WG map to starting the PACEtomo batch acquisition.
-- ```external_map_dir```: Shared folder when running the processing on an external machine ([see below](#external-inference)).
+- ```external_map_dir```: Shared folder when running the processing on an external machine ([see below](#external-processing)).
 - ```grid_list```: List of autoloader slots to be imaged (comma-separated in []-brackets). If you want to run SPACEtomo on the currently loaded grid, enter ```0``` and provide a ```grid_default_name```.
 
 - ```wait_for_inspection```: Pause SPACEtomo before acuiqistion until selected targets have been inspected using the [SPACEtomo target selection GUI](#target-selection-gui)
@@ -249,12 +249,12 @@ You can run SPACEtomo at different automation levels. It will stop after reachin
 #### Level 5: Acquisition
 
 * The highest level of automation will start SerialEM's [Acquire at Items](https://bio3d.colorado.edu/SerialEM/hlp/html/hidd_navacquire.htm) routine. Make sure to set it up accordingly in advance.
-* You have to select the [PACEtomo.py](https://github.com/eisfabian/PACEtomo/) script as the *Primary Action* and make sure that the PACEtomo settings in the script have been set appropiately. Especially consider these settings when running SPACEtomo:
+* You have to select the [PACEtomo.py](https://github.com/eisfabian/PACEtomo/blob/main/PACEtomo.py) script as the *Primary Action* and make sure that the PACEtomo settings in the script have been set appropiately. Especially consider these settings when running SPACEtomo:
 	 * If you want to use the by SPACEtomo automatically determined geo points for sample geometry measurement, set ```measureGeo = True```.
 	 * Set the apropiate ```pretilt``` and ```rotation``` values if you don't want to measure the geometry.
 	 * Set ```previewAli = False``` and ```viewAli = True``` because SPACEtomo generates view mag virtual maps of all targets.
 * No further tasks in the *Acquire at Items* dialog are necessary. PACEtomo will realign to the target and run a eucentricity routine. (You can check "Skip Z" moves during realign.)
-* Additionally, you have to set the [SPACEtomo_postAction.py](https://github.com/eisfabian/SPACEtomo/) script as ```Run Script after Action```. This script will monitor any finishing lamella segmentations that were not ready for target setup before the PACEtomo acquisition started.
+* Additionally, you have to set the [SPACEtomo_postAction.py](SPACEtomo_postAction.py) script as ```Run Script after Action```. This script will monitor any finishing lamella segmentations that were not ready for target setup before the PACEtomo acquisition started.
 * There will be no break to do additional microscope alignments before the tilt series acquisition starts. It is recommended to do all necessary alignments (e.g. Beam Tilt PP, coma-free alignment, Coma vs IS calibration, center OL aperture) prior to running SPACEtomo on a carbon film grid.
 
 #### Multigrid considerations
@@ -365,7 +365,7 @@ The interface will guide you through data preparation from lamella maps in .mrc 
 For my training set, I used Photoshop to segment different classes on different layers by hand. Why Photoshop? My main reason was the support for comfortable labeling using a drawing tablet with pressure sensitiviy. I saved each layer as png file separately and used a Python script to combine these images into a single segmentation image.
 Another script would take these segmentations and output layer images that I could then edit and refine in Photoshop for retraining.
 
-I also want to mention [OpenFIBSEM](https://github.com/DeMarcoLab/fibsem/blob/main/docs/ml_details.md), which includes a Napari-based labelling workflow that can be adapted for nnU-Net. This workflow can make use of general segmentaion models for assisted labeling.
+I also want to mention [OpenFIBSEM](https://demarcolab.github.io/openfibsem-docs/autolamella/ml/), which includes a Napari-based labelling workflow that can be adapted for nnU-Net. This workflow can make use of general segmentaion models for assisted labeling.
 
 ## Acknowledgements
 
