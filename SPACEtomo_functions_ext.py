@@ -81,8 +81,8 @@ def findLamellae(map_dir, map_name, model, threshold=0, save_boxes=True, device=
     image = np.array(Image.open(os.path.join(map_dir, map_name + "_wg.png")))
 
     # Split up image if larger than model input
-    num_cols = image.shape[0] // model.sidelen + 1
-    num_rows = image.shape[1] // model.sidelen + 1
+    num_cols = -(image.shape[0] // -model.sidelen)      # Using -(a // -b) instead of a // b for ceil int division
+    num_rows = -(image.shape[1] // -model.sidelen)
 
     # Pad if smaller than model input
     if image.shape[0] < model.sidelen or image.shape[1] < model.sidelen:
