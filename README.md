@@ -1,7 +1,7 @@
 # SPACEtomo
 
 Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a set of SerialEM and Python scripts to fully automate the cryoET data collection workflow.
-Please refer to the [publication](https://www.biorxiv.org/content/10.1101/2023.12.14.571776v1.full) for more details.
+Please refer to the [publication](https://www.nature.com/articles/s41592-024-02373-9) ([pdf](https://rdcu.be/dQlI4)) for more details.
 
 <img src="img/SPACEtomo_logo.png" width="600" alt="SPACEtomo" />
 
