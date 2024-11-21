@@ -1,8 +1,0 @@
-name: SerialEM_SPACEtomo_min
-channels:
- - conda-forge
-dependencies:
- - python=3.6
- - scipy=1.5.4
- - scikit-image=0.17.2
- - mrcfile=1.5.0

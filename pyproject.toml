@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SPACEtomo"
+dynamic = ["version"]
+description = "Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a package that - together with SerialEM - completely automates the cryoET data acquisition workflow."
+readme = "README.md"
+requires-python = ">=3.6,!=3.7.*,!=3.8.*,!=3.10.*" # SerialEM does not support 3.10
+license = {file = "LICENSE"}
+keywords = ["SPACEtomo", "cryoET", "tomography", "electron-tomography", "SerialEM"]
+maintainers = [
+    {name = "Fabian Eisenstein", email = "fabian.eisenstein@ethz.ch"}
+]
+dependencies = [
+  "matplotlib>=3.5; python_version>='3.9'",
+  "mrcfile>=1.5.0; python_version>='3.9'",
+  "numpy>=1.26.4; python_version>='3.9'",
+  "Pillow>=10.4.0; python_version>='3.9'",
+  "scipy>=1.12.0; python_version>='3.9'",
+  "scikit-image>=0.22.0; python_version>='3.9'",
+
+  "matplotlib>=3.3; python_version<'3.7'",
+  "mrcfile>=1.5; python_version<'3.7'",
+  "numpy>=1.19; python_version<'3.7'",
+  "Pillow>=8.0; python_version<'3.7'",
+  "scipy>=1.5; python_version<'3.7'",
+  "scikit-image>=0.17; python_version<'3.7'",
+  "imageio==2.15.0; python_version<'3.7'" # max version 2.16.0 needs numpy>=1.20
+]
+
+[project.optional-dependencies]
+gui = [
+  "dearpygui>=1.10.0; python_version>='3.9'"
+]
+predict = [
+  "torch>=2.2.0; python_version>='3.9'", 
+  "torchvision>=0.17.0; python_version>='3.9'", 
+  "nnunetv2>=2.2.1; python_version>='3.9'", 
+  "ultralytics>=8.1.12; python_version>='3.10'",
+  "ultralytics>=8.1.12,<8.3.10; python_version=='3.9'"
+]
+
+[project.scripts]
+SPACEtomo = "SPACEtomo.CLI:main"
+SPACEmonitor = "SPACEtomo.run_monitor:main"
+SPACEmodel = "SPACEtomo.setup_model:main"
+SPACEconfig = "SPACEtomo.setup_config:main"
+
+[project.urls]
+Homepage = "https://github.com/eisfabian/SPACEtomo"
+Documentation = "https://github.com/eisfabian/SPACEtomo/blob/main/README.md"
+Repository = "https://github.com/eisfabian/SPACEtomo"
+Issues = "https://github.com/eisfabian/SPACEtomo/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "SPACEtomo.__version__"}
+
+[tool.setuptools.packages]
+find = {}

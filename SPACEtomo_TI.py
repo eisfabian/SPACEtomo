@@ -6,7 +6,16 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/02/15
 # Revision:     v1.1
-# Last Change:  2024/03/22: fixed runNapari, disabled targetselection by default (made independent GUI for it)
+# Last Change:  2024/03/22: fixed runNapari, disabled target selection by default (made independent GUI for it)
+#               2024/03/14: added adding and deleting points with left and right click
+#               2024/03/13: added drag and drop for targets, added import and export for targets, added plot color themes for clusters
+#               2024/03/12: added target selection menu, added call to target selection, added show target with cam and beam overlays
+#               2024/02/27: Cleaned up output and included file paths, added colors
+#               2024/02/26: fixed export model, added logo
+#               2024/02/23: added meta_data for exported png, fixed export pixel size to previous exports, added checkPixelSize function, added pixel size menu and scaling to training tab, added tooltips, added export model
+#               2024/02/22: reverted to static textures for better performance and added slight delay after texture deletion, added open next map, added datasets to previous export detection
+#               2024/02/21: added import of previous dataset segmentations, added open log button, added manual mont_shape, fixed mont_shape, temp fixes seg fault when deleting textures by using dynamic texture
+#               2024/02/20: added training commands selecting device and fold
 # ===================================================================
 
 ##### SETTINGS #####
@@ -34,18 +43,14 @@ import subprocess
 from skimage import exposure, transform, draw
 import torch
 
-versionSPACE = "1.1"
+import SPACEtomo.modules.ext as space_ext
+import SPACEtomo.modules.utils as utils
+from SPACEtomo import __version__
+
 CUR_DIR = os.getcwd()
 SPACE_DIR = os.path.dirname(__file__)
 
-# Check if functions file exists
-if os.path.exists(os.path.join(SPACE_DIR, "SPACEtomo_functions_ext.py")):
-    sys.path.insert(len(sys.path), SPACE_DIR)
-    import SPACEtomo_functions_ext as space_ext
-    FUNC_IMPORT = True
-    versionSPACE = space_ext.versionSPACE
-else:
-    FUNC_IMPORT = False
+FUNC_IMPORT = True
 
 # Check if napari is installed
 try:
@@ -95,9 +100,9 @@ def loadDatasetJson(filename):
     
 def window_size_change():
     # Update items anchored to side of window
-    dpg.set_item_pos("logo_img", pos=(10, dpg.get_viewport_height() - 40 - logo_dims[0]))
-    dpg.set_item_pos("logo_text", pos=(10 + logo_dims[1] / 2 - (40), dpg.get_viewport_height() - 40 - logo_dims[0] / 2))
-    dpg.set_item_pos("version_text", pos=(dpg.get_viewport_width() - 100, 10))
+    dpg.set_item_pos("logo_img", pos=(10.0, dpg.get_viewport_height() - 40.0 - logo_dims[0]))
+    dpg.set_item_pos("logo_text", pos=(10.0 + logo_dims[1] / 2 - (40), dpg.get_viewport_height() - 40.0 - logo_dims[0] / 2))
+    dpg.set_item_pos("version_text", pos=(dpg.get_viewport_width() - 100, 10.0))
 
 def cancel_callback():
     pass
@@ -658,8 +663,7 @@ def ins_loadClasses():
             if not os.path.exists(json_file):
                 json_file = "dataset.json"
                 if not os.path.exists(json_file):
-                    print("WARNING: No dataset.json file was found!")
-                    return
+                    raise FileNotFoundError("A dataset.json file from the segmentation model is needed to load the classes!")
             
     CLASSES, *_ = loadDatasetJson(json_file)
 
@@ -825,7 +829,7 @@ def ins_showTargets(load_from_file=False):
             for file in point_files:
                 # Load json data
                 with open(file, "r") as f:
-                    target_areas.append(json.load(f, object_hook=space_ext.revertArray))
+                    target_areas.append(json.load(f, object_hook=utils.revertArray))
         else:
             return
 
@@ -899,7 +903,7 @@ def ins_dragPointUpdate(sender, app_data, user_data):
     dpg.bind_item_theme("ins_tempplot", "scatter_theme3")   # red theme
 
 def ins_tgtUpdate():
-    # Only execute when targes are loaded
+    # Only execute when targets are loaded
     if "target_areas" not in globals():
         return
     
@@ -924,7 +928,7 @@ def ins_tgtUpdate():
                 update = True
         else:
             break
-    # Replot targets if any coords have changed
+    # Re-plot targets if any coords have changed
     if update:
         ins_showTargets()
         if not dpg.does_item_exist("ins_buttsexp"):
@@ -937,7 +941,7 @@ def ins_exportPoints():
     if len(target_areas) > 0:
         for t, target_area in enumerate(target_areas):
             with open(os.path.join(map_dir, map_name + "_points" + str(t) + ".json"), "w+") as f:
-                json.dump(target_area, f, indent=4, default=space_ext.convertArray)
+                json.dump(target_area, f, indent=4, default=utils.convertArray)
     else:
         # Write empty points file to ensure empty targets file is written and map is considered processed
         with open(os.path.join(map_dir, map_name + "_points.json"), "w+") as f:
@@ -949,7 +953,7 @@ def ins_exportPoints():
 # Add points by shift + left clicking
 def ins_mouse_click_left(mouse_coords, mouse_coords_global):
     # Check if mouse click was in plot range and if Shift is pressed (to not double signal when dragging)
-    if dpg.is_key_down(dpg.mvKey_Shift) and "target_areas" in globals() and np.all(mouse_coords > 0) and mouse_coords_global[0] > 200:
+    if (dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)) and "target_areas" in globals() and np.all(mouse_coords > 0) and mouse_coords_global[0] > 200:
         # Transform mouse coords to px coords
         img_coords = np.array([(dims[1] * binning - mouse_coords[1]) / pix_size_png * 10000, mouse_coords[0] / pix_size_png * 10000])
 
@@ -993,12 +997,12 @@ def openNapari():
 
     if os.path.exists(os.path.join(folder_name, map_name + ".png")):
         print("NOTE: Opening exported layer folder in Napari. Closing Napari will overwrite layers.")
-        subprocess.Popen(["python", os.path.join(SPACE_DIR, "SPACEtomo_runNapari.py"), "--folder", folder_name])
+        subprocess.Popen([sys.executable, os.path.join(SPACE_DIR, "SPACEtomo_runNapari.py"), "--folder", folder_name])
 
     # if not: open segmentation
     else:
         print("NOTE: Opening segmentation in Napari. Closing Napari will export layers.")
-        subprocess.Popen(["python", os.path.join(SPACE_DIR, "SPACEtomo_runNapari.py"), "--file_path", file_path, "--seg_path", seg_path])
+        subprocess.Popen([sys.executable, os.path.join(SPACE_DIR, "SPACEtomo_runNapari.py"), "--file_path", file_path, "--seg_path", seg_path])
 
 
 # Delete points by right clicking
@@ -1910,7 +1914,7 @@ with dpg.window(label="GUI", tag="GUI", no_scrollbar=True, no_scroll_with_mouse=
 
     dpg.add_image("logo", pos=(10, dpg.get_viewport_height() - 40 - logo_dims[0]), tag="logo_img")
     dpg.add_text(default_value="SPACEtomo TI", pos=(10 + logo_dims[1] / 2 - (40), dpg.get_viewport_height() - 40 - logo_dims[0] / 2), tag="logo_text")
-    dpg.add_text(default_value="v" + versionSPACE, pos=(dpg.get_viewport_width() - 100, 10), tag="version_text")
+    dpg.add_text(default_value="v" + __version__, pos=(dpg.get_viewport_width() - 100, 10), tag="version_text")
 
 #dpg.set_value("tabbar", "ins_tab")
 dpg.set_primary_window("GUI", True)
