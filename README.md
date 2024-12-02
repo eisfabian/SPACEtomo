@@ -103,6 +103,8 @@ If no error messages appear, all necessary packages should be successfully insta
 
 </details>
 
+NOTE: If you are running SPACEtomo on a Gatan K3 control PC, you might get a warning about your Nvidia driver being too old. I updated the driver on several Gatan PCs without problem, but please consult your IT responsible before updating it. If you cannot update your driver, you can still run lamella detection models locally on the CPU, but lamella segmentation will require [external processing](#external-processing).
+
 ### SerialEM Python path
 
 With that, all dependencies should be ready to go!
@@ -450,6 +452,7 @@ Here are some common problems that might occur:
 
 - In case your lamella montages don't stitch properly, you might need to experiment with the SerialEM montage settings and with the overlap factors in the SPACEtomo config. Redoing the *High Defocus Mag* calibration might also help.
 - If SPACEtomo freezes or crashes when loading an image from the SerialEM buffer, please try just running it again. This issue with SerialEM is still under investigation.
+- If you get an Error about the stage limits during the WG montage acquisition, go to Navigator -> Grid limits and adjust the limits until you can use *Setup Full Montage* without having to adjust the number of tiles.
 - If you get an error saying something like `unexpected keyword argument 'perform_everything_on_XXX`:
   - nnUNet changed the name of the argument recently from `perform_everything_on_gpu` to `perform_everything_on_device`.
   - Please try to change it accordingly in the *SPACEtomo_nnUNet.py* script (SPACEtomo v1.1) and try running it again.

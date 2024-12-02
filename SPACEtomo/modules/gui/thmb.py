@@ -86,7 +86,10 @@ class MapWindow:
                                     self.map_labels[m_name] = dpg.add_text(m_name, color=gui.COLORS["heading"])
                                 else:
                                     self.map_buttons[m_name] = dpg.add_image_button(texture, label=m_name, callback=self.callback_selectMap, user_data=m_name)
-                                    self.map_labels[m_name] = dpg.add_text(m_name)
+                                    if "_old" not in m_name:
+                                        self.map_labels[m_name] = dpg.add_text(m_name)
+                                    else:
+                                        self.map_labels[m_name] = dpg.add_text(m_name, color=gui.COLORS["subtle"])
                                 
                                 # Check target number
                                 if self.map_list_tgtnum[m_id] > 0:
@@ -98,7 +101,11 @@ class MapWindow:
                                 if (self.cur_dir / (m_name + "_inspected.txt")).exists():
                                     dpg.add_text("Inspected", color=gui.COLORS["heading"])
                                 else:
-                                    dpg.add_text("Not inspected")
+                                    # Show inspect button if not currently loaded
+                                    if m_name == self.map_name:
+                                        dpg.add_text("Not inspected")
+                                    else:
+                                        dpg.add_button(tag=f"map_btn_ins_{m_id}", label="Mark inspected", callback=self.markInspected, user_data=m_name)
 
     def deleteMapTable(self):
         """Deletes thumbnail table."""
@@ -233,3 +240,11 @@ class MapWindow:
             self.map_name = map_name
             dpg.configure_item(self.map_buttons[self.map_name], tint_color=gui.COLORS["heading"], enabled=False)
             dpg.configure_item(self.map_labels[self.map_name], color=gui.COLORS["heading"])
+
+    def markInspected(self, sender, app_data, user_data):
+        """Makes single map as inspected."""
+
+        map_name = user_data
+        (self.cur_dir / (map_name + "_inspected.txt")).touch()
+        self.deleteMapTable()
+        self.makeMapTable()

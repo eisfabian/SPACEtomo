@@ -162,7 +162,8 @@ def main():
                     return
 
             microscope.loadGrid(grid_slot)
-            microscope.changeObjAperture(0)
+            if config.aperture_control:
+                microscope.changeObjAperture(0)
             microscope.openValves()
 
             # Check for WG montage
@@ -225,6 +226,12 @@ def main():
                 shifted = False
                 eucentricity = False
                 for n, nav_id in enumerate(lamella_nav_ids):
+
+                    # If lamella nav item was already converted from polygon to map, skip it
+                    if nav.items[nav_id].entries["Type"] == ["2"]:
+                        log(f"WARNING: Lamella {n + 1} was already imaged at intermediate mag and will be skipped.")
+                        continue
+
                     log(f"Moving to lamella {n + 1}...")
                     microscope.moveStage(nav.items[nav_id].stage)
 
@@ -284,7 +291,7 @@ def main():
                         im_boxes.sortBy("center_dist")
                         im_boxes.boxes = im_boxes.boxes[:1]
 
-                        log(f"NOTE: Detected lamella of class: {im_boxes.boxes[0].cat} [{im_boxes.boxes[0].prob}]")
+                        log(f"NOTE: Detected lamella of class: {config.WG_model_categories[im_boxes.boxes[0].cat]} [{round(im_boxes.boxes[0].prob * 100)} %]")
 
                         # Check if too close to previously detected lamella
                         lamella_FL_ids = nav.searchByEntry("label", "FL", partial=True)     # Final lamellae (FL)
@@ -317,7 +324,9 @@ def main():
                             nav.items.append(pre_item) # Add initial polygon back to nav
                             pre_item.nav_index = len(nav) # Adjust nav_index
                             nav.push()
-                            pre_item.changeLabel(f"FL{n + 1}") # Only rename after nav was pushed
+                            # Only rename label and note after nav was pushed as it will update SerialEM directly
+                            pre_item.changeLabel(f"FL{n + 1}")
+                            pre_item.changeNote(f"FL{n + 1}: " + pre_item.note.split(":")[1])
                             log(f"WARNING: No lamella detected! Initially detected lamella was retained due to high confidence [{round(float(pre_item.entries['UserValue1'][0]) * 100)} %].")
                         else:
                             log(f"WARNING: No lamella detected. If you want to add lamellae manually, please select wait_for_inspection in the settings.")
@@ -340,7 +349,8 @@ def main():
             MM_model = space_ext.MMModel()
 
             # Insert objective aperture
-            microscope.changeObjAperture(config.objective_aperture)
+            if config.aperture_control:
+                microscope.changeObjAperture(config.objective_aperture)
 
             # Enter Low Dose Mode
             microscope.changeImagingState(settings["MM_image_state"], low_dose_expected=True)
@@ -372,7 +382,7 @@ def main():
             MM_map_ids = []
             for i, nav_id in enumerate(lamella_nav_ids):
                 # Make sure no MM map is waiting in queue before starting next montage. TODO: better queue management
-                if not EXTERNAL_RUN and i > 0:
+                if settings["automation_level"] >= 3 and not EXTERNAL_RUN and i > 0:
                     space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params)
 
                 # Get lamella map name
@@ -381,7 +391,21 @@ def main():
 
                 # Collect montage
                 log(f"Collecting map for lamella {map_name}...")
+
+                # Check if montage already exists in nav
                 map_id = nav.getIDfromNote(map_file.name, warn=False)
+
+                # Check if file also exists
+                if not map_file.exists():
+                    # Check if it was marked for reacquisition by renaming and update nav note accordingly
+                    if old_map_files := list(map_file.parent.glob(map_file.stem + "_old*.mrc")):
+                        nav.items[map_id].changeNote(old_map_files[-1].name)
+                        map_id = None
+                        # Reset inspection status
+                        if (MAP_DIR / (map_file.stem + "_inspected.txt")).exists():
+                            (MAP_DIR / (map_file.stem + "_inspected.txt")).unlink()
+
+                # Collect map if no nav item found
                 if map_id is None:
                     # Delete potentially aborted montage file
                     if map_file.exists():
@@ -440,6 +464,15 @@ def main():
             for m, map_id in enumerate(MM_map_ids):
                 map_name = Path(nav.items[map_id].note).stem
                 map_file = MAP_DIR / (map_name + ".png")
+
+                # Check if file exists
+                if not (CUR_DIR / (map_name + ".mrc")).exists():
+                    # Check if it was marked for reacquisition by renaming and update nav note accordingly
+                    if old_map_files := list(CUR_DIR.glob(map_name + "_old*.mrc")):
+                        nav.items[map_id].changeNote(old_map_files[-1].name)
+                        log(f"WARNING: {map_name} was marked for reacquisition and target setup will be skipped.")
+                        continue
+
                 map_img = Buffer(nav_id=map_id)
 
                 if not EXTERNAL_RUN:
