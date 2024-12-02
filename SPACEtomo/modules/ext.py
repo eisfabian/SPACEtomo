@@ -874,7 +874,7 @@ def monitorFiles(map_dir):
 def checkErr(map_dir, map_name):
     error_file = os.path.join(map_dir, map_name + "_SPACE.err")
     if os.path.exists(error_file):
-        with open(error_file, "r") as f:
+        with open(error_file, "r", encoding="utf-8") as f:
             content = f.read()
             if "not enough memory" in content or "truncated" in content:
                 log(f"ERROR: Out of memory or truncated segmentation error! Trying again...")

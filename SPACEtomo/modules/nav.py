@@ -41,6 +41,12 @@ class NavItem:
         self.label = str(label)
         self.entries = {}
 
+        # Instantiate attributes
+        self.stage = np.zeros(3)
+        self.item_type = 0
+        self.note = ""
+        self.map_file = None
+
     def readBlock(self, open_file):
         """Reads block of open navigator file until next empty line."""
 
@@ -52,6 +58,11 @@ class NavItem:
 
     def getBlock(self):
         """Converts attributes back to navigator file entry."""
+
+        # Check existence of map and downgrade to polygon if map file cannot be found to prevent error when loading nav
+        if self.item_type == 2 and self.map_file:
+            if not self.map_file.exists():
+                self.item_type = 1
 
         # Update changed attributes
         self.revertEntries()

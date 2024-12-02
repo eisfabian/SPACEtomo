@@ -540,7 +540,7 @@ class PACEArea(TargetArea):
             # Tracking target nav adjustments
             if p == 0:
                 nav.items[nav_id].changeAcquire(1)
-                nav.items[nav_id].changeNote(map_name + "_tgts.txt")
+                nav.items[nav_id].changeNote(area_name + "_tgts.txt")
 
         nav.newPointGroup(self.geo_points_stage, "geo", color_id=5, stage_z=nav.items[template_id].stage[2])    
 
