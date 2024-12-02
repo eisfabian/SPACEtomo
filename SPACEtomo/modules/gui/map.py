@@ -62,7 +62,6 @@ class MMap:
                 except OSError:
                     log(f"ERROR: Image file [{self.file}] did not finish saving. Please try again later or make sure the file was not corrupted!")
                     return
-            print(self.img.shape)
             log(f"DEBUG: Loaded map in {time.time() - start} s. [{self.img.dtype}]")
 
         # Fill also when loadMrc fails

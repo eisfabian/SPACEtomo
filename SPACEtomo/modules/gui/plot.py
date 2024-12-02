@@ -120,24 +120,45 @@ class Plot:
         else:
             return False
         
-    def updateImg(self, id, texture, bounds=None):
+    def updateImg(self, id, texture=None, bounds=None):
         """Updates texture of plotted image series."""
 
-        # Old texture
-        old_tex = self.img[id]["tex"]
+        if texture is not None:
+            # Old texture
+            old_tex = self.img[id]["tex"]
 
-        # Update texture
-        self.img[id]["tex"] = texture
-        dpg.configure_item(self.img[id]["plot"], texture_tag=texture)
+            # Update texture
+            self.img[id]["tex"] = texture
+            dpg.configure_item(self.img[id]["plot"], texture_tag=texture)
 
-        # Delete old texture
-        if dpg.does_item_exist(old_tex): 
-            dpg.delete_item(old_tex)
-            dpg.split_frame(delay=10)                       # helps to reduce Segmentation fault crashes
+            # Delete old texture
+            if dpg.does_item_exist(old_tex): 
+                dpg.delete_item(old_tex)
+                dpg.split_frame(delay=10)                       # helps to reduce Segmentation fault crashes
 
         # Update bounds
         if bounds is not None:
-            dpg.configure_item(self.img[id]["plot"], bounds_min=(bounds[0, 0], bounds[1, 0]), bounds_max=(bounds[0, 1], bounds[1, 1]))
+            dpg.configure_item(self.img[id]["plot"], bounds_min=(bounds[0][0], bounds[1][0]), bounds_max=(bounds[0][1], bounds[1][1]))
+
+    def updateOverlay(self, id, texture=None, bounds=None):
+        """Updates texture of plotted overlay image series."""
+
+        if texture is not None:
+            # Old texture
+            old_tex = self.overlays[id]["tex"]
+
+            # Update texture
+            self.overlays[id]["tex"] = texture
+            dpg.configure_item(self.overlays[id]["plot"], texture_tag=texture)
+
+            # Delete old texture
+            if dpg.does_item_exist(old_tex): 
+                dpg.delete_item(old_tex)
+                dpg.split_frame(delay=10)                       # helps to reduce Segmentation fault crashes
+
+        # Update bounds
+        if bounds is not None:
+            dpg.configure_item(self.overlays[id]["plot"], bounds_min=(bounds[0][0], bounds[1][0]), bounds_max=(bounds[0][1], bounds[1][1]))
 
     """Methods to find specific plot elements whose label contains a keyword."""
     def getImgByKeyword(self, keyword):

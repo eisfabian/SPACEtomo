@@ -177,9 +177,9 @@ class FlmWindow:
 
         # Load black background
         if not self.lm_plot.getOverlaysByKeyword("background"):
-            bg_tex_img = np.zeros(new_map.img_bin.shape)
-            bg_tex_img[:, :, 3] = np.ones(new_map.img_bin.shape[:2])
-            bg_dims = np.flip(np.array(new_map.img_bin.shape[:2])).tolist()
+            bg_tex_img = np.zeros((1, 1, 4))
+            bg_tex_img[:, :, 3] = 1
+            bg_dims = np.flip(np.array(bg_tex_img.shape[:2])).tolist()
             with dpg.texture_registry():
                 bg_tex = dpg.add_static_texture(width=bg_dims[0], height=bg_dims[1], default_value=np.ravel(bg_tex_img))
             self.lm_plot.addOverlay(bg_tex, [[0, dims_plot[0]], [0, dims_plot[1]]], label="background")
@@ -206,20 +206,30 @@ class FlmWindow:
         ccw = user_data
 
         for m, lm_map in enumerate(self.lm_maps):
+            # Rotate numpy array
             lm_map.img_bin = np.rot90(lm_map.img_bin, k=1 + int(not ccw) * 2)
+            # Update dims for px2micron conversion
+            lm_map.dims_microns = np.flip(lm_map.dims_microns)
+            # Plot new image
             self.changeColor(None, lm_map.channel, m)
+            # Save state
             self.rotated += 1 + int(not ccw) * 2
             self.rotated = self.rotated % 4
 
         # Rotate registration points
-        center = np.array(lm_map.img_bin.shape[:2]).T / 2
-        if ccw:
-            rot_mat = np.array([[0, -1, center[0] + center[1]], [1, 0, center[1] - center[0]], [0, 0, 1]])
-        else:
-            rot_mat = np.array([[0, 1, center[0] - center[1]], [-1, 0, center[0] + center[1]], [0, 0, 1]])
-        # Add 3rd dimension for matrix multiplication,transform, remove 3rd dimension for output
-        self.lm_points = (np.column_stack([self.lm_points, np.ones(len(self.lm_points))]) @ rot_mat.T)[:, :2]
-        self.plotPoints()
+        if len(self.lm_points) > 0:
+            width = self.lm_maps[0].img_bin.shape[0]
+            height = self.lm_maps[0].img_bin.shape[1]
+
+            # Get appropriate rotation matrix
+            if ccw:
+                rot_mat = np.array([[0, -1, width], [1, 0, 0], [0, 0, 1]])
+            else:
+                rot_mat = np.array([[0, 1, 0], [-1, 0, height], [0, 0, 1]])
+            # Add 3rd dimension for matrix multiplication, transform, remove 3rd dimension for output
+            self.lm_points = (np.column_stack([self.lm_points, np.ones(len(self.lm_points))]) @ rot_mat.T)[:, :2].tolist()
+
+            self.plotPoints()
 
     def flipMap(self, sender, app_data, user_data):
         """Flips all LM maps and transforms registration points."""
@@ -358,8 +368,12 @@ class FlmWindow:
         self.lm_maps[map_id].img_mod = new_img
         texture = self.lm_maps[map_id].getTexture(mod=True)
 
+        # Update background in case dims have changed
+        dims_plot = np.flip(np.array(self.lm_maps[map_id].img_mod.shape[:2]) * self.lm_maps[map_id].pix_size / 10000)
+        self.lm_plot.updateOverlay(utils.findIndex(self.lm_plot.overlays, "label", "background"), texture=None, bounds=[[0, dims_plot[0]], [0, dims_plot[1]]])
+
         # Just replace texture to keep plotting order the same
-        self.lm_plot.updateImg(plot_id, texture)
+        self.lm_plot.updateImg(plot_id, texture, bounds=[[0, dims_plot[0]], [0, dims_plot[1]]])
 
         # Update channel attribute
         self.lm_maps[map_id].channel = app_data
