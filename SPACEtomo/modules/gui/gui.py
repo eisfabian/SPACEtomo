@@ -317,9 +317,9 @@ class StatusLine:
         else:
             dpg.show_item(self.item)
             if box:
-                self.processing_box = showInfoBox("PROCESSING", self.status, options=None)
+                self.processing_box = showInfoBox("PROCESSING", self.status, options=None, loading=True)
 
-def showInfoBox(title, message, callback=None, options=[], options_data=[]):
+def showInfoBox(title, message, callback=None, options=[], options_data=[], loading=False):
     """Shows info or confirmation pop up box."""
 
     # Set color
@@ -347,16 +347,24 @@ def showInfoBox(title, message, callback=None, options=[], options_data=[]):
                         dpg.add_button(label=option, user_data=[infobox, user_data], callback=callback)
                 else:
                     dpg.add_button(label="OK", callback=callback)
+        elif loading:
+            loading_icon = dpg.add_loading_indicator(circle_count=6)
 
     # Wait for next frame so size and position can be adjusted
     dpg.split_frame()
 
     window_size = np.array((dpg.get_item_width(infobox), dpg.get_item_height(infobox)))
+    dpg.split_frame() # seems to help reducing misplaced windows
     dpg.set_item_pos(infobox, pos=(viewport_size - window_size) / 2)    # pos needs to be a float from dpg>=2.0
 
     # Center buttons
     if options is not None:
-        group_size=np.array(dpg.get_item_rect_size(infobtns))
+        group_size = np.array(dpg.get_item_rect_size(infobtns))
         dpg.set_item_pos(infobtns, ((window_size[0] - group_size[0]) / 2, dpg.get_item_pos(infobtns)[1]))    # pos needs to be a float from dpg>=2.0
+
+    # Center loading icon
+    if loading:
+        icon_size = dpg.get_item_rect_size(loading_icon)
+        dpg.set_item_pos(loading_icon, ((window_size[0] - icon_size[0]) / 2, dpg.get_item_pos(loading_icon)[1]))    # pos needs to be a float from dpg>=2.0
 
     return infobox

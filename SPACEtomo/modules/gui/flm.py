@@ -177,6 +177,7 @@ class FlmWindow:
 
         # Load black background
         if not self.lm_plot.getOverlaysByKeyword("background"):
+            #bg_tex_img = np.zeros((new_map.img_bin.shape))
             bg_tex_img = np.zeros((1, 1, 4))
             bg_tex_img[:, :, 3] = 1
             bg_dims = np.flip(np.array(bg_tex_img.shape[:2])).tolist()
@@ -312,11 +313,11 @@ class FlmWindow:
                             with dpg.plot(tag=f"flm_hist_plot_{m}", no_box_select=True, no_menus=True, no_title=True, no_mouse_pos=True, width=30, height=80):
                                 dpg.add_plot_axis(dpg.mvXAxis, tag=f"flm_hist_x_{m}", no_gridlines=True, no_tick_labels=True, no_tick_marks=True)
                                 with dpg.plot_axis(dpg.mvYAxis, tag=f"flm_hist_y_{m}", no_gridlines=True, no_tick_labels=True, no_tick_marks=True) as yaxis:
-                                    dpg.add_bar_series(x=hist[1:-1], y=edges[1:len(hist) - 1], horizontal=True)
+                                    dpg.add_bar_series(x=list(hist[1:-1]), y=list(edges[1:len(hist) - 1]), horizontal=True)
 
-                                    y_vals = map.thresholds * len(hist)
+                                    y_vals = list(map.thresholds * len(hist))
                                     try:
-                                        dpg.add_inf_line_series(tag=f"flm_hist_thr_{m}", x=y_vals)
+                                        dpg.add_inf_line_series(tag=f"flm_hist_thr_{m}", horizontal=True, x=y_vals)
                                     except AttributeError:      # Backward compatibility with dearpyguy<2.0
                                         log(f"WARNING: Consider updating DearPyGUI to version >=2.0!")
                                         dpg.add_hline_series(tag=f"flm_hist_thr_{m}", x=y_vals)
