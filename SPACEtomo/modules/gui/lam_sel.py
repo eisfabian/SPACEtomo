@@ -169,6 +169,12 @@ class LamellaGUI:
             self.scaleOutlines()
 
     def loadMap(self, sender, app_data, user_data, tile_size=None, stitched=None, quantile=None):
+
+        # Remove auto load trigger if exist
+        if dpg.does_item_exist("auto_load_map"):
+            dpg.delete_item("auto_load_map")
+
+        # Get file selection
         selected_files = sorted([file for file in app_data["selections"].values()])
         file_path = Path(selected_files[0])
 
@@ -930,6 +936,10 @@ class LamellaGUI:
             dpg.add_mouse_release_handler(button=dpg.mvMouseButton_Left, callback=self.mouseRelease)
             dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Left, callback=self.mouseDrag)
             dpg.add_mouse_wheel_handler(callback=self.mouseScroll)
+
+            # If map given, auto load on mouse movement
+            if self.file:
+                dpg.add_mouse_move_handler(tag="auto_load_map", callback=lambda: self.loadMap(None, {"selections": {self.file.name: self.file}}, None))
 
             # Shortcuts
             dpg.add_key_press_handler(dpg.mvKey_H, callback=self.showHelp)
