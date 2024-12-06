@@ -161,7 +161,11 @@ def main():
                     log(f"ERROR: Cannot run in DUMMY mode without mic_params.json!")
                     return
 
-            microscope.loadGrid(grid_slot)
+            if microscope.loaded_grid == grid_slot:
+                already_loaded = True
+            else:
+                already_loaded = False
+                microscope.loadGrid(grid_slot)
             if config.aperture_control:
                 microscope.changeObjAperture(0)
             microscope.openValves()
@@ -172,6 +176,9 @@ def main():
                 # Make WG montage
                 wg_nav_id = microscope.collectFullMontage(WG_model, overlap=config.WG_montage_overlap)
                 nav.pull()
+            else:
+                if not already_loaded:
+                    microscope.realignGrid(wg_nav_id)
 
             # Save WG map
             wg_map = Buffer(nav_id=wg_nav_id)
@@ -395,15 +402,30 @@ def main():
                 # Check if montage already exists in nav
                 map_id = nav.getIDfromNote(map_file.name, warn=False)
 
-                # Check if file also exists
-                if not map_file.exists():
-                    # Check if it was marked for reacquisition by renaming and update nav note accordingly
-                    if old_map_files := list(map_file.parent.glob(map_file.stem + "_old*.mrc")):
-                        nav.items[map_id].changeNote(old_map_files[-1].name)
-                        map_id = None
-                        # Reset inspection status
-                        if (MAP_DIR / (map_file.stem + "_inspected.txt")).exists():
-                            (MAP_DIR / (map_file.stem + "_inspected.txt")).unlink()
+                # Check for reacquisition
+                if (MAP_DIR / (map_name + "_reacquire.txt")).exists():
+                    # Rename mrc file and nav item
+                    counter = 0
+                    while (new_mrc_file := CUR_DIR / f"{map_name}_old{counter}.mrc").exists():
+                        counter += 1
+                    map_file.replace(new_mrc_file)
+                    if (CUR_DIR / f"{map_file.name}.mdoc").exists():
+                        (CUR_DIR / f"{map_file.name}.mdoc").replace(CUR_DIR / f"{new_mrc_file.name}.mdoc")
+                    nav.items[map_id].map_file = new_mrc_file
+                    nav.items[map_id].changeNote(str(new_mrc_file))
+                    nav.items[map_id].changeLabel("old")
+
+                    # Delete map files
+                    map_file_list = MAP_DIR.glob(f"**/{map_name}*")
+                    for file in map_file_list:
+                        if file.exists():
+                            if file.is_file():
+                                log(f"DEBUG: Deleting {file}")
+                                file.unlink()
+                            elif file.is_dir():
+                                utils.rmDir(file)
+                    
+                    map_id = None
 
                 # Collect map if no nav item found
                 if map_id is None:
@@ -464,15 +486,6 @@ def main():
             for m, map_id in enumerate(MM_map_ids):
                 map_name = Path(nav.items[map_id].note).stem
                 map_file = MAP_DIR / (map_name + ".png")
-
-                # Check if file exists
-                if not (CUR_DIR / (map_name + ".mrc")).exists():
-                    # Check if it was marked for reacquisition by renaming and update nav note accordingly
-                    if old_map_files := list(CUR_DIR.glob(map_name + "_old*.mrc")):
-                        nav.items[map_id].changeNote(old_map_files[-1].name)
-                        log(f"WARNING: {map_name} was marked for reacquisition and target setup will be skipped.")
-                        continue
-
                 map_img = Buffer(nav_id=map_id)
 
                 if not EXTERNAL_RUN:

@@ -458,37 +458,17 @@ class TargetGUI:
         log("Filter map")
 
     def reacquireMap(self):
-        """Marks map to be reacquired by changing file names."""
+        """Marks map to be reacquired by next SPACEtomo run."""
 
-        mrc_file = self.cur_dir.parent / (self.map_name + ".mrc")
-        if mrc_file.exists():
-            counter = 0
-            while (new_mrc_file := self.cur_dir.parent / (self.map_name + f"_old{counter}.mrc")).exists():
-                counter += 1
-            new_map_name = self.map_name + f"_old{counter}"
-            # Rename mrc file and all generated files
-            mrc_file.replace(new_mrc_file)
-            if (self.cur_dir / (self.map_name + ".png")).exists():
-                (self.cur_dir / (self.map_name + ".png")).replace(self.cur_dir / (new_map_name + ".png"))
-            if (self.cur_dir / (self.map_name + "_seg.png")).exists():
-                (self.cur_dir / (self.map_name + "_seg.png")).replace(self.cur_dir / (new_map_name + "_seg.png"))
-            if (self.cur_dir / "thumbnails" / (self.map_name + ".png")).exists():
-                (self.cur_dir / "thumbnails" / (self.map_name + ".png")).replace(self.cur_dir / "thumbnails" / (new_map_name + ".png"))
-            # Provide empty point file
-            if not list(self.cur_dir.glob(new_map_name + "_points*.json")):
-                Targets(map_dir=self.cur_dir, map_name=new_map_name, map_dims=self.loaded_map.img.shape, tgt_params=self.tgt_params, map_pix_size=self.loaded_map.pix_size).exportTargets()
-            # Mark new name as inspected and original name (to not stall current run)
-            (self.cur_dir / (self.map_name + "_inspected.txt")).touch(exist_ok=True)
-            (self.cur_dir / (new_map_name + "_inspected.txt")).touch(exist_ok=True)
+        # Create empty reacquire file
+        (self.cur_dir / (self.map_name + "_reacquire.txt")).touch()
 
-            self.map_name = new_map_name
+        log(f"DEBUG: Reacquire map {self.map_name} on next SPACEtomo run!")
+        gui.showInfoBox("INFO", "This map will be reacquired on the next SPACEtomo run. If you want to reacquire now, please stop the SPACEtomo run and start it again.")
 
-            log(f"DEBUG: Reacquire map {mrc_file} on next SPACEtomo run!")
-            gui.showInfoBox("INFO", "This map will be reacquired on the next SPACEtomo run. If you want to reacquire now, please stop the SPACEtomo run and start it again.")
-        else:
-            log(f"ERROR: Cannot find existing map MRC file. Reacquisition could not be scheduled.")
-            gui.showInfoBox("ERROR", "Cannot find existing map MRC file. Reacquisition could not be scheduled!")
-
+        self.clearTargets()
+        self.markInspected(None, None, None, keep_map=True)
+            
     def applyClassSelection(self, sender, app_data, user_data):
         """Applies checked classes to target list."""
 
@@ -976,7 +956,7 @@ class TargetGUI:
         dpg.hide_item(self.menu_right.all_elements["butsave"])
         log("NOTE: Saved targets!")
 
-    def markInspected(self, sender, app_data, user_data):
+    def markInspected(self, sender, app_data, user_data, keep_map=False):
         """Creates inspected.txt file and locks down editing."""
 
         # Check for geo_points
@@ -1011,7 +991,7 @@ class TargetGUI:
         log("NOTE: Targets were marked as inspected!")
 
         # If there are not inspected maps left, load next map
-        if not self.checkAllInspected():
+        if not keep_map and not self.checkAllInspected():
             log("\n\nLoading next map...")
             self.selectMap(next_map=True)
 

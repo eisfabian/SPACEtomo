@@ -407,6 +407,11 @@ class MicroscopeDummy:
         else:
             log(f"Grid [{self.autoloader[grid_slot]}] is already loaded.")
 
+    def realignGrid(self, map_id):
+        """Realigns grid to previously taken whole grid map and transforms nav items accordingly."""
+
+        log(f"WARNING: Grid was realigned to previously collected whole grid map. Targets selected previously might still be subject to residual shifts. Please check the realign to item procedure before starting data collection.")
+
     ### Complex actions
 
     def collectFullMontage(self, model, overlap):

@@ -372,6 +372,12 @@ class Microscope:
         else:
             log(f"Grid [{self.autoloader[grid_slot]}] is already loaded.")
 
+    def realignGrid(self, map_id):
+        """Realigns grid to previously taken whole grid map and transforms nav items accordingly."""
+
+        sem.RealignReloadedGrid(map_id + 1, 0, 0, 0, 1)
+        log(f"WARNING: Grid was realigned to previously collected whole grid map. Targets selected previously might still be subject to residual shifts. Please check the realign to item procedure before starting data collection.")
+
     ### Complex actions
 
     def collectFullMontage(self, model, overlap):
@@ -422,6 +428,10 @@ class Microscope:
         """Collects montage at polygon using View mode."""
 
         self.changeLowDoseArea("V")
+
+        # Setup frame name for View frames (Cannot activate frame saving from script at the moment.)
+        sem.SetFrameBaseName(0, 1, 0, "View_" + file.name) # change frame name
+
         # Setup polygon montage
         sem.ParamSetToUseForMontage(2)
         sem.SetMontPanelParams(1, 1, 1, 1)      # check all Montage control panel options

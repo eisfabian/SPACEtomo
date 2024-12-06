@@ -14,6 +14,7 @@ import sys
 import time
 import json
 import struct
+import shutil
 import numpy as np
 import mrcfile
 import hashlib
@@ -547,3 +548,22 @@ def guiProcess(gui_type, file_path="", auto_close=False):
         subprocess.Popen([sys.executable, Path(__file__).parent.parent / "GUI.py", *args], creationflags=DETACHED_PROCESS)
     except ValueError:      # Creationflags only supported on Windows
         subprocess.Popen([sys.executable, Path(__file__).parent.parent / "GUI.py", *args])
+
+def rmDir(dir_path):
+    """Deletes directory."""
+
+    log(f"DEBUG: Deleting directory: {dir_path}")
+
+    # Minimum safety check to not delete top level paths
+    if len(dir_path.parents) <= 3:
+        log(f"ERROR: You are about to delete a high level directory [{dir_path}]. Please do it manually!")
+        return
+
+    """Python 3.12+
+    for root, dirs, files in dir_path.walk(top_down=False):
+        for name in files:
+            (root / name).unlink()
+        for name in dirs:
+            (root / name).rmdir()
+    """
+    shutil.rmtree(dir_path)
