@@ -131,8 +131,14 @@ class Buffer:
     def imgFromBuffer(self, mod=False, reload=False):
         """Converts buffer to image as numpy array."""
 
+        # Set timeout for buffer image command (command was added 02.12.2024)
+        try:
+            sem.SetBufferImageTimeout(5)
+        except AttributeError:
+            log(f"WARNING: If SerialEM gets stuck here, please try updating it!")
+
         # Wrap in loop because it sometimes fails and add timeout call in case it freezes without error
-        for i in range(10):
+        for i in range(3):
             try:
                 if not mod:
                     if self.img is None or reload:
