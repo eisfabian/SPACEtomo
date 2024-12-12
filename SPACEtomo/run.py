@@ -412,7 +412,7 @@ def main():
                     if (CUR_DIR / f"{map_file.name}.mdoc").exists():
                         (CUR_DIR / f"{map_file.name}.mdoc").replace(CUR_DIR / f"{new_mrc_file.name}.mdoc")
                     nav.items[map_id].map_file = new_mrc_file
-                    nav.items[map_id].changeNote(str(new_mrc_file))
+                    nav.items[map_id].changeNote(new_mrc_file.name)
                     nav.items[map_id].changeLabel("old")
 
                     # Delete map files
