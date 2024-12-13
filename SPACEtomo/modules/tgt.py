@@ -157,6 +157,16 @@ class Targets:
             closest_area = 0
         return closest_area
     
+    def getClosestGeoPoint(self, coords, threshold):
+        """Finds closest geo point and checks if distance within threshold."""
+
+        if self.areas:
+            points = self.areas[0].geo_points
+            if len(points) > 0:
+                closest_id = np.argmin(np.linalg.norm(points - coords, axis=1))
+                return closest_id, np.linalg.norm(points[closest_id] - coords) < threshold
+        return None, False
+    
     def checkBounds(self, coords):
         """Checks if coords are out of bounds of map."""
 
@@ -167,6 +177,12 @@ class Targets:
     def resetGeo(self):
         for area in self.areas:
             area.geo_points = np.empty([0, 2])
+
+    def removeGeoPoint(self, point_id):
+        """Removes single geo_point from all areas. (Assumes geo_points are kept synced for all target areas.)"""
+
+        for area in self.areas:
+            area.removeGeoPoint(point_id)
 
     def mergeAreas(self):
         """Merge all target areas."""
@@ -379,6 +395,11 @@ class TargetArea:
 
         # Update center
         self.center = self.points[0]
+
+    def removeGeoPoint(self, point_id):
+        """Removes geo point by id."""
+
+        self.geo_points = np.delete(self.geo_points, point_id, axis=0)
 
     def makeTrack(self, id):
         self.points[0: id + 1] = np.roll(self.points[0: id + 1], shift=1, axis=0)
