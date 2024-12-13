@@ -236,7 +236,7 @@ class LamellaGUI:
         self.plotTiles()
 
         # Update GUI
-        self.menu.unlockRows(["lamlist", "detect", "visuals", "inspect", "rescale"])
+        self.menu.unlockRows(["lamlist", "detect", "inspect", "rescale"])
         if self.loaded_map.file.suffix.lower() in [".mrc", ".map"]:
             self.menu.unlockRows(["mrcscale"])
         dpg.set_value(self.menu.all_elements["inp_pixsize"], int(self.loaded_map.pix_size / 10))
@@ -852,6 +852,22 @@ class LamellaGUI:
             log(f"NOTE: Finished inspecting detected lamellae and closed GUI.")
             dpg.stop_dearpygui()
 
+    def savePlot(self, sender, app_data, user_data):
+        """Gets frame buffer to save plot to file. (Does not work on MacOS.)"""
+
+        # Check if map was opened
+        if not self.loaded_map:
+            log(f"ERROR: Please load a map before saving a snapshot!")
+            gui.showInfoBox("WARNING", "Please load a map before saving a snapshot!")
+            return
+        
+        # Get name for snapshot
+        counter = 1
+        while (snapshot_file_path := self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_snapshot{counter}.png").exists():
+            counter += 1
+        
+        gui.saveSnapshot(self.plot.plot, snapshot_file_path)
+
     def askForSave(self):
         """Opens popup if there are unsaved changes."""
 
@@ -1015,10 +1031,6 @@ class LamellaGUI:
                         self.menu.newRow(tag="detect", horizontal=True, advanced=True)
                         self.menu.addButton(tag="btn_detect", label="Detect lamellae", callback=self.callLamellaDetection)
 
-                        self.menu.newRow(tag="visuals", horizontal=True)
-                        self.menu.addButton(tag="btn_rzoom", label="Reset zoom", callback=self.plot.resetZoom)
-                        self.menu.addButton(tag="btn_ttiles", label="Show tiles", callback=self.toggleTiles, advanced=True)
-
                         self.menu.newRow(tag="rescale", horizontal=True, advanced=True)
                         self.menu.addInput("inp_pixsize", label="[nm/px]", value=100)
                         self.menu.addButton(tag="btn_rescale", label="Rescale", callback=self.rescaleMap)
@@ -1041,6 +1053,14 @@ class LamellaGUI:
                         self.status = gui.StatusLine()
 
                     with dpg.table_cell(tag="tblplot"):
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(default_value="WG map", color=gui.COLORS["heading"])
+                            dpg.add_image_button(gui.makeIconResetZoom(), callback=self.plot.resetZoom, tag="butresetzoom")
+                            with dpg.tooltip("butresetzoom", delay=0.5):
+                                dpg.add_text("Reset zoom")
+                            dpg.add_image_button(gui.makeIconSnapshot(), callback=self.savePlot, tag="butsnapshot")
+                            with dpg.tooltip("butsnapshot", delay=0.5):
+                                dpg.add_text("Save snapshot")
                         self.plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
 
             # Create tooltips

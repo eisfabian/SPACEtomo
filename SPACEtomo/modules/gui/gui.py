@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
 # Revision:     v1.2
-# Last Change:  2024/11/20: added a variety of icons, removed static tag from info box
+# Last Change:  2024/12/13: added save snapshot function, added icons for zoom out and snapshot
+#               2024/11/20: added a variety of icons, removed static tag from info box
 #               2024/08/09: moved most classes to their own module
 #               2024/08/08: added coordinate conversion in MMap class
 #               2024/07/30: added combo type to Menu
@@ -21,9 +22,14 @@
 #               2024/04/26
 # ===================================================================
 
+import time
 import numpy as np
+from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 from skimage import transform, draw
 import dearpygui.dearpygui as dpg
+
+from SPACEtomo.modules.utils import log
 
 ### GUI CONFIG ###
 
@@ -272,6 +278,98 @@ def makeIconEdit():
 
     return tag
 
+def makeIconSnapshot():
+    """Makes camera icon."""
+
+    tag = "icon_snapshot"
+
+    if dpg.does_item_exist(tag):
+        return tag
+    img = np.zeros((13, 13))
+    dims = img.shape[:2]
+
+    radius = 3
+    i, j, val = draw.circle_perimeter_aa(dims[0] // 2 + 1, dims[1] // 2, radius)
+    img[i, j] = val
+
+    # Flash
+    i, j, val = draw.line_aa(3, 3, 1, 5)
+    img[i, j] = val
+    i, j, val = draw.line_aa(1, 5, 1, 7)
+    img[i, j] = val
+    i, j, val = draw.line_aa(1, 7, 3, 9)
+    img[i, j] = val
+
+    # Box
+    i, j, val = draw.line_aa(3, 0, 11, 0)
+    img[i, j] = val
+    i, j, val = draw.line_aa(3, 0, 3, 12)
+    img[i, j] = val
+    i, j, val = draw.line_aa(11, 0, 11, 12)
+    img[i, j] = val
+    i, j, val = draw.line_aa(3, 12, 11, 12)
+    img[i, j] = val
+
+    img = np.clip(img, 0, 1)
+
+    tex_img = np.ravel(np.dstack([np.ones(dims), np.ones(dims), np.ones(dims), img]))
+
+    with dpg.texture_registry():
+        dpg.add_static_texture(width=dims[1], height=dims[0], default_value=tex_img, tag=tag)
+
+    return tag
+
+def makeIconResetZoom():
+    """Makes zoom reset icon."""
+
+    tag = "icon_resetzoom"
+
+    if dpg.does_item_exist(tag):
+        return tag
+    img = np.zeros((13, 13))
+    dims = img.shape[:2]
+
+    # Top left
+    i, j, val = draw.line_aa(1, 1, 4, 4)
+    img[i, j] = val
+    i, j, val = draw.line_aa(0, 0, 0, 3)
+    img[i, j] = val
+    i, j, val = draw.line_aa(0, 0, 3, 0)
+    img[i, j] = val
+
+    # Top right
+    i, j, val = draw.line_aa(4, 8, 1, 11)
+    img[i, j] = val
+    i, j, val = draw.line_aa(0, 12, 3, 12)
+    img[i, j] = val
+    i, j, val = draw.line_aa(0, 12, 0, 9)
+    img[i, j] = val
+
+    # Bottom right
+    i, j, val = draw.line_aa(8, 8, 11, 11)
+    img[i, j] = val
+    i, j, val = draw.line_aa(12, 12, 9, 12)
+    img[i, j] = val
+    i, j, val = draw.line_aa(12, 12, 12, 9)
+    img[i, j] = val
+
+    # Bottom left
+    i, j, val = draw.line_aa(8, 4, 11, 1)
+    img[i, j] = val
+    i, j, val = draw.line_aa(12, 0, 9, 0)
+    img[i, j] = val
+    i, j, val = draw.line_aa(12, 0, 12, 3)
+    img[i, j] = val
+
+    img = np.clip(img, 0, 1)
+
+    tex_img = np.ravel(np.dstack([np.ones(dims), np.ones(dims), np.ones(dims), img]))
+
+    with dpg.texture_registry():
+        dpg.add_static_texture(width=dims[1], height=dims[0], default_value=tex_img, tag=tag)
+
+    return tag
+
 def window_size_change(logo_dims):
     # Update items anchored to side of window
     dpg.set_item_pos("logo_img", pos=(10, dpg.get_viewport_client_height() - 40 - logo_dims[0]))
@@ -368,3 +466,43 @@ def showInfoBox(title, message, callback=None, options=[], options_data=[], load
         dpg.set_item_pos(loading_icon, ((window_size[0] - icon_size[0]) / 2, dpg.get_item_pos(loading_icon)[1]))    # pos needs to be a float from dpg>=2.0
 
     return infobox
+
+def saveSnapshot(element, file_path):
+    """Saves frame buffer to temp file, loads it and crops out element to save as image file."""
+
+    # Save whole frame as temp file (callback to directly obtain frame as array crashes)
+    log(f"DEBUG: Saving temp frame buffer image...")
+    temp_path = file_path.parent / "temp.png"
+    dpg.output_frame_buffer(str(temp_path))
+
+    # Wait until temp file is written
+    max_count = 4
+    counter = 0
+    while not temp_path.exists():
+        log(f"DEBUG: Waiting for temp frame buffer image [{temp_path}]...")
+        time.sleep(0.5)
+        counter += 1
+        if counter >= max_count:
+            log(f"ERROR: Snapshot failed! Saving snapshots might not be supported yet on your OS.")
+            showInfoBox("ERROR", "Snapshot failed! Saving snapshots might not be supported yet on your OS.")
+            return
+
+    # Load temp frame buffer image
+    log(f"DEBUG: Loading temp frame buffer image...")
+    frame = np.array(Image.open(temp_path))
+
+    # Get bounds of element
+    left, top = dpg.get_item_pos(element)
+    width, height = dpg.get_item_rect_size(element)
+
+    # Crop element
+    log(f"DEBUG: Element cropping dimensions: [{top}: {top + height}, {left}: {left + width}]")
+    cropped_frame = frame[top: top + height, left: left + width]
+
+    # Save cropped frame as image
+    Image.fromarray(cropped_frame).save(file_path)
+    log(f"NOTE: Saved snapshot at {file_path}")
+    showInfoBox("NOTE", f"Snapshot was saved to {file_path}")
+
+    # Delete temp frame buffer image
+    temp_path.unlink()

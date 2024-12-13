@@ -85,7 +85,10 @@ class TargetGUI:
 
         # Right mouse button functions
         elif dpg.is_mouse_button_down(dpg.mvMouseButton_Right) or (dpg.is_mouse_button_down(dpg.mvMouseButton_Left) and dpg.is_key_down(dpg.mvKey_E)):
-            self.showTargetMenu(img_coords)  
+            # Check for target in range to show menu
+            if not self.showTargetMenu(img_coords):
+                # If no target in range, check for geo point in range to delete
+                self.removeGeoPoint(img_coords)
 
         # Middle mouse button functions
         elif dpg.is_mouse_button_down(dpg.mvMouseButton_Middle) or (dpg.is_mouse_button_down(dpg.mvMouseButton_Left) and dpg.is_key_down(dpg.mvKey_G)):
@@ -660,6 +663,9 @@ class TargetGUI:
             dpg.set_item_pos("win_tgt", mouse_coords_global)
             dpg.show_item("win_tgt")
 
+            return True
+        return False
+
     def assembleTargetInfo(self, closest_point_id):
         """Creates string with target info for display."""
 
@@ -883,6 +889,20 @@ class TargetGUI:
             self.showTargets()
             self.showTargetAreaButtons()
             # Enable save button
+            dpg.show_item(self.menu_right.all_elements["butsave"])
+
+    def removeGeoPoint(self, img_coords):
+        """Deletes closest geo point from all target areas. (Assumes geo_points are kept synced for all target areas.)"""
+
+        # Get camera dims
+        rec_dims = np.array(self.tgt_params.weight.shape)
+
+        # If no target it range check for geo points
+        closest_point_id, in_range = self.targets.getClosestGeoPoint(img_coords, np.min(rec_dims))
+        if in_range:
+            # Remove geo point from all areas
+            self.targets.removeGeoPoint(closest_point_id)
+            self.showTargets()
             dpg.show_item(self.menu_right.all_elements["butsave"])
 
     def mergeAreas(self):
@@ -1169,6 +1189,22 @@ class TargetGUI:
             self.target_overlays["track"] = dpg.add_static_texture(width=int(self.target_overlays["tgtdims"][1]), height=int(self.target_overlays["tgtdims"][0]), default_value=trk_overlay_image)
             self.target_overlays["geo"] = dpg.add_static_texture(width=int(self.target_overlays["geodims"][1]), height=int(self.target_overlays["geodims"][0]), default_value=geo_overlay_image)
 
+    def savePlot(self, sender, app_data, user_data):
+        """Gets frame buffer to save plot to file. (Does not work on MacOS.)"""
+
+        # Check if map was opened
+        if not self.map_name:
+            log(f"ERROR: Please load a map before saving a snapshot!")
+            gui.showInfoBox("WARNING", "Please load a map before saving a snapshot!")
+            return
+        
+        # Get name for snapshot
+        counter = 1
+        while (snapshot_file_path := self.cur_dir / f"{self.map_name}_snapshot{counter}.png").exists():
+            counter += 1
+        
+        gui.saveSnapshot(self.plot.plot, snapshot_file_path)
+
     def askForSave(self):
         """Opens popup if there are unsaved changes."""
 
@@ -1435,6 +1471,14 @@ class TargetGUI:
                         self.status = gui.StatusLine()
 
                     with dpg.table_cell(tag="tblplot"):
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(default_value="MM map", color=gui.COLORS["heading"])
+                            dpg.add_image_button(gui.makeIconResetZoom(), callback=self.plot.resetZoom, tag="butresetzoom")
+                            with dpg.tooltip("butresetzoom", delay=0.5):
+                                dpg.add_text("Reset zoom")
+                            dpg.add_image_button(gui.makeIconSnapshot(), callback=self.savePlot, tag="butsnapshot")
+                            with dpg.tooltip("butsnapshot", delay=0.5):
+                                dpg.add_text("Save snapshot")
                         self.plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
 
                     with dpg.table_cell(tag="tblright"):
