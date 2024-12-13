@@ -210,6 +210,20 @@ You also need the [PACEtomo scripts](https://github.com/eisfabian/PACEtomo) (v1.
 
 Optional: You can also copy the [SPACEtomo_lamellaDetectionGUI.py](https://github.com/eisfabian/SPACEtomo/tree/main/SPACEtomo/SerialEM_scripts/SPACEtomo_lamellaDetectionGUI.py) and the [SPACEtomo_targetSelectionGUI.py](https://github.com/eisfabian/SPACEtomo/tree/main/SPACEtomo/SerialEM_scripts/SPACEtomo_targetSelectionGUI.py) to a SerialEM script window to easily open the [SPACEtomo GUIs](#lamella-detection-gui) from SerialEM.
 
+### Updating
+
+If you want to update SPACEtomo to the latest version, simply activate your virtual environment and run:
+
+    pip install SPACEtomo
+
+with network connection or:
+
+    pip install --proxy <proxy_address> SPACEtomo
+
+using a proxy.
+
+SPACEtomo models should be retained but please double-check that your config file is still valid!
+
 ## Usage
 
 The usage instructions for SPACEtomo assume that [PACEtomo](https://github.com/eisfabian/PACEtomo) is already able to run normally on your setup.
