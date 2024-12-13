@@ -6,7 +6,7 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/21
 # Revision:     v1.2
-# Last Change:  
+# Last Change:  2024/12/13: added backup to models folder
 # ===================================================================
 
 import shutil
@@ -26,6 +26,11 @@ def main():
     if args.file:
         file_path = Path(args.file)
         config_path = Path(__file__).parent / "config.py"
+
+        # Prepare backup in models folder
+        if not (Path(__file__).parent / "models").exists():
+            (Path(__file__).parent / "models").mkdir()
+        backup_config_path = Path(__file__).parent / "models" / "config.py"
 
         # Make copy of config file
         if args.task == "get":
@@ -71,6 +76,9 @@ def main():
             # Overwrite config file
             shutil.copy(file_path, config_path)
 
+            # Save backup to model folder
+            shutil.copy(config_path, backup_config_path)
+
             log(f"Config file was successfully updated!")       
 
         # Toggle dummy mode
@@ -89,6 +97,9 @@ def main():
             with open(config_path, "w") as f:
                 f.writelines(new_config)
 
+            # Save backup to model folder
+            shutil.copy(config_path, backup_config_path)
+
             log(f"NOTE: DUMMY mode was set to {not config.DUMMY}!")
 
         # Toggle debug mode
@@ -106,6 +117,9 @@ def main():
 
             with open(config_path, "w") as f:
                 f.writelines(new_config)
+
+            # Save backup to model folder
+            shutil.copy(config_path, backup_config_path)
 
             log(f"NOTE: DEBUG mode was set to {not config.DEBUG}!")
 

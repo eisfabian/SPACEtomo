@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
 # Revision:     v1.2
-# Last Change:  2024/09/26: outsourcing of more settings from SPACEtomo_run scripts
+# Last Change:  2024/12/13: added check for backup config
+#               2024/09/26: outsourcing of more settings from SPACEtomo_run scripts
 #               2024/08/20: added SerialEM connection setting
 #               2024/05/02: changed model colors to RGBA
 #               2024/03/12: removed max_runs
@@ -37,7 +38,7 @@ max_iterations          = 10                    # maximum number of iterations f
 # Model specific settings (depend on how the model was trained)
 
 # WG model (YOLOv8)
-WG_model_file = '2024_07_26_lamella_detect_400nm_yolo8.pt'
+WG_model_file = 'model.pt'
 WG_model_pix_size = 400.0 # nm/px
 WG_model_sidelen = 1024 # px
 WG_model_categories = ["broken",           "contaminated",     "good",             "thick",            "wedge",             "gone"          ] 
@@ -61,7 +62,17 @@ MM_model_pix_size = 22.83 / 10  # nm/px
 
 #######################################
 # Self-check
+import sys
+import shutil
 from pathlib import Path
+
+config_backup = Path(__file__).parent / "models" / "config.py"
+if config_backup.exists():
+    from SPACEtomo.models import config as backup
+    if WG_model_file != backup.WG_model_file or MM_model_folder != backup.MM_model_folder:
+        print(f"WARNING: Loading backup config file from previous SPACEtomo version. Please run the command/script again!")
+        shutil.copy(config_backup, __file__)
+        sys.exit()
 
 if Path(WG_model_file).exists():
     NO_WG_MODEL = False

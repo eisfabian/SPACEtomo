@@ -133,7 +133,7 @@ def listModels(model_dir):
     model_list = sorted(model_dir.glob("*"))
     log(f"\n############################################\n Registered SPACEtomo models: (* = active)")
     for model_file in model_list:
-        if model_file.name.startswith("."):
+        if model_file.name.startswith((".", "__", "config")):
             continue
         # Mark model as selected if config model path exists and is same as model_file
         if (not config.NO_WG_MODEL and Path(config.WG_model_file).samefile(model_file)) or (not config.NO_MM_MODEL and Path(config.MM_model_folder).samefile(model_file)):
@@ -199,6 +199,9 @@ def activateModel(model_file, alternative_name=""):
 
     with open(SPACE_DIR / "config.py", "w") as f:
         f.writelines(new_config)
+
+    # Copy config to models folder
+    shutil.copy(SPACE_DIR / "config.py", model_file.parent / "config.py")
 
     # Import new config values
     from SPACEtomo import config as config_new
@@ -296,10 +299,6 @@ def addModel(model_dir, model_url, model_path, model_name=None):
     log(f"NOTE: New model {model_name} was imported!")
 
     activateModel(model_file, original_file_name)
-
-def clearModels(model_dir):
-    #TODO
-    pass
 
 def main():
     # Process arguments
