@@ -67,7 +67,7 @@ def main():
             
             # Check if model files exist
             for line in config_content.splitlines():
-                if ("WG_model_file" in line or "MM_model_folder" in line) and not "exists" in line:
+                if ("WG_model_file" in line or "MM_model_folder" in line) and not "exists" in line and not "backup" in line:
                     model_file = Path(line.split("=")[-1].strip().strip("r").replace("'", "").replace('"', ""))
                     if not model_file.exists():
                         log(f"ERROR: New config file contains invalid model file: {model_file}")
