@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/08
 # Revision:     v1.2
-# Last Change:  2024/10/02: added slider support
+# Last Change:  2024/12/23: added tooltip support
+#               2024/10/02: added slider support
 #               2024/08/08: separated from gui.py 
 # ===================================================================
 
@@ -31,7 +32,7 @@ class Menu:
     def makeTable(self):
         """Creates base table."""
 
-        with dpg.table(header_row=False, width=-1, borders_innerH=True) as self.table:
+        with dpg.table(header_row=False, width=-1, borders_outerH=True) as self.table:
             dpg.add_table_column()
 
     def newRow(self, tag, horizontal=False, separator=False, locked=True, advanced=False):
@@ -95,7 +96,7 @@ class Menu:
                 if tag in self.separators:
                     dpg.hide_item(self.separators[tag])
 
-    def addText(self, tag, value="", color=(255, 255, 255, 255), advanced=False):
+    def addText(self, tag, value="", color=(255, 255, 255, 255), tooltip="", advanced=False):
         """Adds a text element to the current row."""
 
         element = dpg.add_text(default_value=value, color=color, show=not advanced, parent=self.last_group)
@@ -105,7 +106,16 @@ class Menu:
         else:
             self.elements[tag] = element
 
-    def addButton(self, tag, label="", callback=None, user_data=None, theme=None, show=True, advanced=False):
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addButton(self, tag, label="", callback=None, user_data=None, tooltip="", theme=None, show=True, advanced=False):
         """Adds a button to the current row."""
 
         # Add button to group
@@ -119,7 +129,16 @@ class Menu:
         if theme and dpg.does_item_exist(theme):
             dpg.bind_item_theme(element, theme)
 
-    def addInput(self, tag, label="", value=None, width=50, callback=None, advanced=False):
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addInput(self, tag, label="", value=None, width=50, callback=None, tooltip="", advanced=False):
         """Adds an input field to the current row and uses type of value."""
 
         # Add input to group
@@ -137,7 +156,16 @@ class Menu:
         else:
             self.elements[tag] = element
 
-    def addCheckbox(self, tag, label="", value=False, callback=None, advanced=False):
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addCheckbox(self, tag, label="", value=False, callback=None, tooltip="", advanced=False):
         """Adds checkbox to current row."""
 
         # Add checkbox to group
@@ -148,7 +176,16 @@ class Menu:
         else:
             self.elements[tag] = element
 
-    def addCombo(self, tag, label="", combo_list=[], value="", callback=None, user_data=None, width=0, advanced=False):
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addCombo(self, tag, label="", combo_list=[], value="", callback=None, user_data=None, width=0, tooltip="", advanced=False):
         """Adds dropdown menu to current row."""
 
         # Check if list and value are valid
@@ -164,7 +201,16 @@ class Menu:
         else:
             self.elements[tag] = element
 
-    def addSlider(self, tag, label="", value=0, value_range=[0, 1], width=50, callback=None, advanced=False):
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addSlider(self, tag, label="", value=0, value_range=[0, 1], width=50, callback=None, tooltip="", advanced=False):
         """Adds a slider to current row."""
 
         # Add slider to group
@@ -179,6 +225,15 @@ class Menu:
             self.elements_adv[tag] = element
         else:
             self.elements[tag] = element
+
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
 
     @property
     def all_rows(self):

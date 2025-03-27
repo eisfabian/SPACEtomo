@@ -3,7 +3,9 @@
 # Purpose:      Functions for utilities needed by other packages and scripts.
 # Author:       Fabian Eisenstein
 # Created:      2024/07/18
-# Last Change:  2024/09/24: updated log to handle debug and line breaks
+# Last Change:  2025/02/12: added alignCC
+#               2025/01/22: added Path handling to json, added breakpoint
+#               2024/09/24: updated log to handle debug and line breaks
 #               2024/09/04: converted settings to configparser
 #               2024/09/02: added dummy_replace
 #               2024/08/19: moved and updated writeTargets, moved writeMrc, moved saveSettings
@@ -65,11 +67,52 @@ def log(text, color=0, style=0):
             style = 1 
         elif text.startswith("DEBUG:"):
             color = 1
+            if config.BREAKPOINTS:
+                breakpoint()
 
         sem.SetNextLogOutputStyle(style, color)
         sem.EchoBreakLines(text)
     else:
         print(text)
+
+def breakpoint():
+    """Breakpoint for debugging in SerialEM."""
+
+    if SERIALEM:
+        while not sem.KeyBreak():
+            sem.Delay(0.1, "s")
+        for i in range(5):
+            if sem.KeyBreak("d"):
+                dumpVars()
+                break
+            sem.Delay(0.1, "s")
+
+def dumpVars():
+    """Saves all variables from global and local scopes to a file."""
+
+    timestamp = time.strftime("%Y_%m_%d_%H%M%S", time.localtime())
+    file_path = getCurDir() / f"debug_vars_{timestamp}.json"
+    
+    def serialize_value(val) -> str:
+        """Convert value to string, handling non-serializable objects."""
+        try:
+            return str(val)
+        except:
+            return f"<Non-serializable object of type {type(val).__name__}>"
+    
+    # Collect variables
+    debug_data = {
+        "globals": {k: serialize_value(v) for k, v in globals().items()
+                   if not k.startswith('__')},
+        "locals": {k: serialize_value(v) for k, v in locals().items()
+                  if not k.startswith('__')}
+    }
+    
+    # Write to file
+    with open(file_path, 'w') as f:
+        json.dump(debug_data, f, indent=2)
+
+    log(f"NOTE: DUMPING VARS INTO {file_path}")
 
 def getCurDir():
     """Gets current directory from SerialEM or from main script."""
@@ -103,16 +146,20 @@ def loadColFile(file, force_type=str):
     return data
 
 # Convert numpy arrays to list for json (https://stackoverflow.com/a/65354261)
-def convertArray(array):
+def convertToTaggedString(array):
     if hasattr(array, "tolist"):
         return {"$array": array.tolist()}       # convert to list in dict with tag
+    if hasattr(array, "as_posix"):
+        return {"$path": array.as_posix()}            # convert to string in dict with tag
     raise TypeError(array)
 
-def revertArray(array):
+def revertTaggedString(array):
     if len(array) == 1:                         # check only dicts with one key
         key, value = next(iter(array.items()))
         if key == "$array":                     # if the key is the tag, convert
             return np.array(value)
+        if key == "$path":
+            return Path(value)
     return array
 
 def toNumpy(img):
@@ -195,7 +242,7 @@ def dummy_replace(replacement_func_name):
         return inner
     return dummy_replace_decorator
 
-def saveSettings(file, vars, start="automation_level", end="max_tilt"):
+def saveSettings(file, vars, start="automation_level", end="external_map_dir"):
     """Saves SPACEtomo script settings."""
 
     config = ConfigParser(allow_no_value=True)
@@ -315,7 +362,10 @@ def writeTargets(targets_file, targets, geo_points=[], saved_run=False, resume={
     if settings:
         for key, val in settings.items():
             if val != "":
-                output += f"_set {key} = {val}\n"
+                if isinstance(val, bool):
+                    output += f"_bset {key} = {val}\n"
+                else:
+                    output += f"_set {key} = {val}\n"
         output += "\n"
     if resume["sec"] > 0 or resume["pos"] > 0:
         output += f"_spos = {resume['sec']},{resume['pos']}\n\n"
@@ -396,7 +446,9 @@ def parseMdoc(mdoc_file):
                     # Exit item on empty line
                     if not col[0]:
                         break
-                    items[-1][col[0]] = [val for val in col[2:]]
+                    items[-1][col[0]] = [castString(val) for val in col[2:]]
+                    if isinstance(items[-1][col[0]][0], list) and len(items[-1][col[0]]) == 1:
+                        items[-1][col[0]] = items[-1][col[0]][0]
             else:
                 header += line
 
@@ -567,3 +619,48 @@ def rmDir(dir_path):
             (root / name).rmdir()
     """
     shutil.rmtree(dir_path)
+
+def alignCC(img1: np.ndarray, img2: np.ndarray):
+    """
+    Measure the translation between two grayscale numpy arrays using FFT.
+       
+    Returns:
+    tuple: (x_shift, y_shift) - Translation in pixels
+    float: correlation_score - Peak correlation value (confidence measure)
+    """
+    # Ensure arrays are the same size
+    if img1.shape != img2.shape:
+        raise ValueError("Arrays must have the same dimensions")
+       
+    # Compute FFT of both arrays
+    f1 = np.fft.fft2(img1)
+    f2 = np.fft.fft2(img2)
+    
+    # Compute cross-power spectrum
+    cross_power = f1 * f2.conj()
+    cross_power_norm = cross_power / np.abs(cross_power)
+    
+    # Compute inverse FFT and get correlation
+    correlation = np.abs(np.fft.ifft2(cross_power_norm))
+
+    # Autocorrelation suppression
+    correlation[0, 0] = np.mean(correlation)
+
+    #from matplotlib import pyplot as plt
+    #print("Max: ", np.max(correlation), "Center: ", correlation[0, 0], "Next: ", correlation[1, 1])
+    #plt.imshow(np.log(np.fft.ifftshift(correlation)), cmap='gray')
+    #plt.show()
+    
+    # Find the peak correlation position
+    y_shift, x_shift = np.unravel_index(np.argmax(correlation), correlation.shape)
+    
+    # Adjust shifts to be relative to image center
+    shift_y = y_shift if y_shift < img1.shape[0]//2 else y_shift - img1.shape[0]
+    shift_x = x_shift if x_shift < img1.shape[1]//2 else x_shift - img1.shape[1]
+
+    # Calculate confidence score
+    correlation_score = np.max(correlation) / np.mean(correlation)
+
+    log(f"DEBUG: Found shift of {shift_x, shift_y} with confidence {correlation_score}.")
+
+    return np.array((shift_x, shift_y)), correlation_score

@@ -30,7 +30,7 @@ except:
     sys.exit()
 import argparse
 from pathlib import Path
-from SPACEtomo.modules.gui.lam_sel import LamellaGUI
+from SPACEtomo.modules.gui.lam_sel import GridGUI
 from SPACEtomo.modules.gui.tgt_sel import TargetGUI
 
 def run_process(gui, path="", auto_close=False):
@@ -41,17 +41,17 @@ def run_process(gui, path="", auto_close=False):
     
 def main():
     # Process arguments
-    parser = argparse.ArgumentParser(description="Calls GUI to inspect whole grid maps and detected lamellae.")
-    parser.add_argument("gui", type=str, default="targets", help="Name of GUI to be opened. Options: targets, lamella")
+    parser = argparse.ArgumentParser(description="Calls GUI to inspect whole grid maps and select regions of interest.")
+    parser.add_argument("gui", type=str, default="targets", help="Name of GUI to be opened. Options: targets, grid")
     parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map [.png].")
     parser.add_argument("--auto_close", action="store_true", help="Auto-close GUI after inspection.")
     args = parser.parse_args()
 
     # Get GUI
-    if args.gui == "targets":
+    if "target" in args.gui.lower():
         gui = TargetGUI
-    elif args.gui == "lamella":
-        gui = LamellaGUI
+    elif "lamella" in args.gui.lower() or "roi" in args.gui.lower() or "region" in args.gui.lower() or args.gui.lower() == "grid":
+        gui = GridGUI
     else:
         raise ValueError(f"No GUI found with name {args.gui}!")
 

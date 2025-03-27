@@ -5,8 +5,9 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
-# Revision:     v1.2
-# Last Change:  2024/09/02: fixed area name not considered when preparing targets
+# Revision:     v1.3
+# Last Change:  2025/01/30: added rectangular search threshold, small fixes
+#               2024/09/02: fixed area name not considered when preparing targets
 #               2024/08/19: added virtual map creation, nav preparation, target export
 #               2024/08/16: added PACEArea child of TargetArea
 #               2024/08/12: implemented local optimization
@@ -21,6 +22,8 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.cluster.vq import kmeans2
 
+from SPACEtomo.modules.nav import Navigator
+from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.ext import calcScore_cluster, calcScore_point
 from SPACEtomo.modules import utils
 from SPACEtomo.modules.utils import log
@@ -33,13 +36,14 @@ class Targets:
         self.map_dir = Path(map_dir)
         self.map_name = map_name            # needed for file names
         self.map_dims = map_dims            # needed to check bounds
-        self.map_pix_size = map_pix_size    # needed for meta_data
+        self.map_pix_size = map_pix_size    # nm/px, needed for meta_data
         self.tgt_params = tgt_params        # needed for rec_dims and target score calculation
 
         # Get camera dims
         self.rec_dims = np.array(tgt_params.weight.shape)
 
         self.areas = []
+        self.suggestions = []
         self.settings = None
 
         # Set class attributes for areas
@@ -70,6 +74,10 @@ class Targets:
             # Create new area only if last area has points
             if self.areas[-1]:
                 self.areas.append(TargetArea())
+
+                # Add all geo points to new target area
+                for geo_point in self.areas[0].geo_points:
+                    self.areas[-1].addPoint(geo_point, geo=True)
             closest_area = -1
 
         else:
@@ -141,7 +149,16 @@ class Targets:
         # Check for point within range
         if len(points) > 0:
             closest_id = np.argmin(np.linalg.norm(points - coords, axis=1))
-            return point_ids[closest_id], np.linalg.norm(points[closest_id] - coords) < threshold
+
+            # Check if distance is within threshold
+            if isinstance(threshold, np.number):
+                valid = np.linalg.norm(points[closest_id] - coords) < threshold
+            elif isinstance(threshold, np.ndarray):
+                valid = np.all(np.abs(points[closest_id] - coords) < threshold)
+            else:
+                log(f"WARNING: Invalid threshold type for closest point {type(threshold)}! Need float or array!")
+                return None, False
+            return point_ids[closest_id], valid
         else:
             return None, False
 
@@ -164,7 +181,33 @@ class Targets:
             points = self.areas[0].geo_points
             if len(points) > 0:
                 closest_id = np.argmin(np.linalg.norm(points - coords, axis=1))
-                return closest_id, np.linalg.norm(points[closest_id] - coords) < threshold
+
+                # Check if distance is within threshold
+                if isinstance(threshold, np.number):
+                    valid = np.linalg.norm(points[closest_id] - coords) < threshold
+                elif isinstance(threshold, np.ndarray):
+                    valid = np.all(np.abs(points[closest_id] - coords) < threshold)
+                else:
+                    log(f"WARNING: Invalid threshold type for closest point {type(threshold)}! Need float or array!")
+                    return None, False
+                return closest_id, valid
+        return None, False
+    
+    def getClosestSuggestion(self, coords, threshold):
+        """Finds closest target suggestion and checks if distance within threshold."""
+
+        if len(self.suggestions) > 0:
+            closest_id = np.argmin(np.linalg.norm(self.suggestions - coords, axis=1))
+
+            # Check if distance is within threshold
+            if isinstance(threshold, np.number):
+                valid = np.linalg.norm(self.suggestions[closest_id] - coords) < threshold
+            elif isinstance(threshold, np.ndarray):
+                valid = np.all(np.abs(self.suggestions[closest_id] - coords) < threshold)
+            else:
+                log(f"WARNING: Invalid threshold type for closest point {type(threshold)}! Need float or array!")
+                return None, False
+            return closest_id, valid
         return None, False
     
     def checkBounds(self, coords):
@@ -333,6 +376,8 @@ class TargetArea:
         self.scores = np.empty(0)
         self.geo_points = np.empty([0, 2])
 
+        self.meta_data = {}
+
         # Dict to hold class dependent scores
         self.class_scores = {}
 
@@ -349,7 +394,7 @@ class TargetArea:
 
         # Load json data
         with open(file, "r") as f:
-            area = json.load(f, object_hook=utils.revertArray)
+            area = json.load(f, object_hook=utils.revertTaggedString)
 
         if np.any(area["points"]):
             self.points = area["points"]
@@ -359,22 +404,31 @@ class TargetArea:
             self.geo_points = area["geo_points"]
         if "settings" in area.keys():
             TargetArea.settings = area["settings"]
+        if "meta_data" in area.keys():
+            self.meta_data = area["meta_data"]
 
     def exportToJson(self, file, settings=None, meta_data=None):
         """Writes targets to json file."""
 
         # Convert to dictionary
         output_dict = {"points": self.points, "scores": self.scores, "geo_points": self.geo_points}
+
+        # Set measureGeo to True if geo points exist
+        if len(self.geo_points) > 0:
+            if settings:
+                settings["measureGeo"] = True
+            else:
+                settings = {"measureGeo": True}
+
         if settings:
             output_dict["settings"] = settings
             # Update class attribute
             TargetArea.settings = settings
-        if meta_data:
-            output_dict["meta_data"] = meta_data
+        output_dict["meta_data"] = meta_data if meta_data else self.meta_data
 
         # Write to file
         with open(file, "w") as f:
-            json.dump(output_dict, f, indent=4, default=utils.convertArray)
+            json.dump(output_dict, f, indent=4, default=utils.convertToTaggedString)
 
     def addPoint(self, coords, geo=False, score=100):
         """Adds new point at coords."""
@@ -387,6 +441,13 @@ class TargetArea:
         else:
             self.geo_points = np.vstack([self.geo_points, coords])
 
+    def updatePoint(self, id, coords):
+        """Updates point by id."""
+
+        self.points[id] = coords
+        if id == 0:
+            self.center = coords
+
     def removePoint(self, id):
         """Removes point by id."""
 
@@ -394,7 +455,8 @@ class TargetArea:
         self.scores = np.delete(self.scores, id, axis=0)
 
         # Update center
-        self.center = self.points[0]
+        if len(self.points) > 0:
+            self.center = self.points[0]
 
     def removeGeoPoint(self, point_id):
         """Removes geo point by id."""
@@ -420,6 +482,12 @@ class TargetArea:
         for point in self.points:
             score = calcScore_point(point, mask, np.zeros(mask.shape), 0, self.tgt_params.weight, self.tgt_params.edge_weights)
             self.class_scores[cat] = np.append(self.class_scores[cat], [score])
+
+    def getGeoInRange(self, is_limit_px):
+        """Returns list of geo points within image shift limit [pixels]."""
+
+        distances = np.linalg.norm(self.geo_points - self.center, axis=1)
+        return [geo_point for g, geo_point in enumerate(self.geo_points) if distances[g] < is_limit_px]
     
     def optimizeLocally(self, point_id, mask, penalty_mask=None):
         """Use mask to optimize target position locally."""
@@ -466,14 +534,15 @@ class PACEArea(TargetArea):
     model = None
     imaging_params = None
 
-    def __init__(self, file, model, imaging_params, buffer) -> None:
+    def __init__(self, file, model, imaging_params, buffer: Buffer) -> None:
         super().__init__(file)
 
         PACEArea.model = model
         PACEArea.imaging_params = imaging_params
 
-        self.pix_size = self.model.pix_size
+        self.pix_size = self.meta_data["pix_size"] if "pix_size" in self.meta_data else self.model.pix_size
         self.map_buffer = buffer
+        self.nav_id = buffer.nav_id
 
         self.stageCoords()
         self.specimenCoords()
@@ -527,23 +596,43 @@ class PACEArea(TargetArea):
                     log(f"ERROR: Removing of points is not implemented yet!")
                     pass # TODO remove point from all lists
     
-    def makeTrack(self, id, nav):
+    def makeTrack(self, id, nav: Navigator):
         super().makeTrack(id)
         log("ERROR: Making track is not fully implemented yet.")
         #TODO deal with nav changes
 
-    def prepareForAcquisition(self, map_file, nav):
+    def prepareForAcquisition(self, map_file, nav: Navigator, grid_name=""):
         """Prepares virtual maps and navigator for acquisition."""
 
         # Check if map_file contains area
-        if len(map_file.stem.split("_A")) > 1:
-            area_name = map_file.stem
-            map_name = map_file.stem.split("_A")[0]
+        if grid_name:
+            suffix = map_file.stem.split(grid_name)[-1]
+            if "_A" in suffix:
+                area_name = map_file.stem
+                map_name = grid_name + suffix.split("_A")[0]
+            else:
+                map_name = area_name = map_file.stem
         else:
-            map_name = area_name = map_file.stem
+            if len(map_file.stem.split("_A")) > 1:
+                area_name = map_file.stem
+                map_name = map_file.stem.rsplit("_A", 1)[0]
+            else:
+                map_name = area_name = map_file.stem
 
         # Get lamella montage nav_id for template
-        template_id = nav.getIDfromNote(map_name + ".mrc")
+        #template_id = nav.getIDfromNote(map_name + ".mrc") # <= could not deal with Notes like: Sec 0 - map_name.mrc
+        #template_id = nav.searchByEntry("Note", f"{map_name}.mrc", partial=True)
+        template_id = self.nav_id
+        if not template_id:
+            # Try finding map using note
+            log(f"DEBUG: Could not find template map {map_name}.mrc in navigator. Trying to find by note...")
+            template_id = nav.searchByEntry("Note", f"{map_name}.mrc", partial=True)
+            if not template_id:
+                log(f"ERROR: Could not find template map {map_name}.mrc in navigator!")
+                return
+            elif len(template_id) > 1:
+                log(f"WARNING: Found multiple entries for template map {map_name}.mrc in navigator!")
+            template_id = template_id[0]
 
         # Convert to buffer pix size
         self.scaleCoordsBuffer()
@@ -558,10 +647,14 @@ class PACEArea(TargetArea):
             # Add map to navigator
             nav_id = nav.newMapFromImg(img_file=virt_map_file, template_id=template_id, coords=self.points_stage[p], label=str(p + 1).zfill(3), note=virt_map_file.name)
 
-            # Tracking target nav adjustments
+            # Tracking target id for nav adjustments
             if p == 0:
-                nav.items[nav_id].changeAcquire(1)
-                nav.items[nav_id].changeNote(area_name + "_tgts.txt")
+                track_id = nav_id
+
+        # Push once per area to save nav reloads
+        nav.push()
+        nav.items[track_id].changeAcquire(1)
+        nav.items[track_id].changeNote(area_name + "_tgts.txt")
 
         nav.newPointGroup(self.geo_points_stage, "geo", color_id=5, stage_z=nav.items[template_id].stage[2])    
 

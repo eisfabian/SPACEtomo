@@ -1,12 +1,15 @@
 #!Python
 # ===================================================================
 #ScriptName SPACEtomo
-# Purpose:      Finds lamellae in grid map, collects lamella montages and finds targets using deep learning models.
-#               More information at http://github.com/eisfabian/PACEtomo
+# Purpose:      Finds lamellae in grid map, collects medium mag montages and finds targets using deep learning models.
+#               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.2
-# Last Change:  2024/11/20: switched to nav bases item shift, added wait for threaded saving (temporary)
+# Last Change:  2025/02/06: outsourced MM map acquisition to mma.py
+#               2025/01/10: outsourced IM align to ima.py
+#               2024/12/23: added alignTo IM image during grid realign
+#               2024/11/20: switched to nav based item shift, added wait for threaded saving (temporary)
 #               2024/10/21: Added retention of high confidence lamellae
 #               2024/09/04: converted settings to configparser
 #               2024/08/19: finished refactor (except ext.py)
@@ -66,7 +69,7 @@ else:
     SERIALEM = False
     
 import time
-from copy import deepcopy
+import numpy as np
 from pathlib import Path
 import SPACEtomo.modules.ext as space_ext
 from SPACEtomo.modules.utils import log
@@ -74,6 +77,8 @@ from SPACEtomo.modules.scope import Microscope, ImagingParams
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.mod_wg import WGModel, Boxes
+from SPACEtomo.modules.ima import IMAlignment
+from SPACEtomo.modules.mma import MMMAcquisition
 from SPACEtomo.modules.tgt import PACEArea
 import SPACEtomo.modules.utils as utils
 import SPACEtomo.modules.utils_sem as usem
@@ -100,6 +105,9 @@ SES_DIR = usem.getSessionDir()
 def main():
     # Read settings file
     settings = utils.loadSettings(SES_DIR / "SPACEtomo_settings.ini")
+    if not settings["lamella"]:
+        settings["WG_wait_for_inspection"] = True
+        settings["manual_selection"] = True
     if settings["manual_selection"] and not settings["MM_wait_for_inspection"]: # Force inspection in case of manual selection
         settings["MM_wait_for_inspection"] = True
 
@@ -117,14 +125,17 @@ def main():
         usem.confirmationBox(f"WARNING: You selected {len(remaining_grid_list)} grids in combination with target selection. Reloading grids might cause problems with realignment to target areas!")
 
     # Initialize microscope control
-    imaging_params = ImagingParams(settings["WG_image_state"], settings["IM_mag_index"], settings["MM_image_state"], file_dir=SES_DIR)
-    microscope = Microscope(imaging_params)
+    microscope = Microscope()
+    microscope.checkAutoloader()
+    imaging_params = ImagingParams(settings["WG_image_state"], settings["IM_image_state"], settings["MM_image_state"], file_dir=SES_DIR)
+    imaging_params.IS_limit = microscope.is_limit
 
     # Check if imaging states are valid
-    log(f"Checking imaging states...")
-    if not microscope.changeImagingState(imaging_params.MM_image_state, low_dose_expected=True):
-        log(f"ERROR: The provided medium mag imaging state [MM_image_state] is not in Low Dose mode!")
-        return
+    #log(f"Checking imaging states...")
+    #if not microscope.changeImagingState(imaging_params.MM_image_state, low_dose_expected=True):
+    #    log(f"ERROR: The provided medium mag imaging state [MM_image_state] is not in Low Dose mode!")
+    #    return
+    usem.checkImagingStates(states=[settings["WG_image_state"], settings["IM_image_state"]] + settings["MM_image_state"], low_dose_expected=[False, False] + [True] * len(settings["MM_image_state"]))
 
     # Run on every grid
     for grid_slot in remaining_grid_list:
@@ -132,8 +143,11 @@ def main():
         # Get grid name
         grid_name = microscope.autoloader[grid_slot]
 
-        # Setup dir
-        CUR_DIR, MAP_DIR, EXTERNAL_RUN = usem.prepareEnvironment(SES_DIR, grid_name, settings["external_map_dir"])
+        # Setup dirs
+        CUR_DIR = SES_DIR / grid_name
+        usem.setDirectory(CUR_DIR)
+        usem.openNewLog(grid_name)
+        MAP_DIR, EXTERNAL_RUN = usem.prepareEnvironment(CUR_DIR, settings["external_map_dir"])
 
         # Save settings for SPACEtomo_postAction.py
         utils.saveSettings(MAP_DIR / "SPACEtomo_settings.ini", settings)
@@ -146,7 +160,7 @@ def main():
         if settings["automation_level"] >= 1:
 
             # Load model
-            WG_model = WGModel(EXTERNAL_RUN)  # load a custom model
+            WG_model = WGModel(MAP_DIR, EXTERNAL_RUN)  # load a custom model
 
             # Load grid
             nav = Navigator(CUR_DIR / (grid_name + ".nav"))
@@ -156,6 +170,8 @@ def main():
                 microscope.cur_dir = CUR_DIR
                 microscope.map_dir = MAP_DIR
                 microscope.nav = nav
+                microscope.imaging_params = imaging_params
+                Buffer.microscope = microscope
                 Buffer.imaging_params = imaging_params
                 if imaging_params.rec_ta_rotation is None:
                     log(f"ERROR: Cannot run in DUMMY mode without mic_params.json!")
@@ -174,177 +190,86 @@ def main():
             wg_nav_id = nav.getIDfromNote(grid_name + ".mrc")
             if wg_nav_id is None:
                 # Make WG montage
-                wg_nav_id = microscope.collectFullMontage(WG_model, overlap=config.WG_montage_overlap)
+                wg_nav_id = microscope.collectFullMontage(imaging_params, WG_model, overlap=config.WG_montage_overlap)
                 nav.pull()
             else:
                 if not already_loaded:
-                    microscope.realignGrid(wg_nav_id)
+                    # Run realign routine on whole grid map
+                    microscope.changeImagingState(settings["WG_image_state"], low_dose_expected=False)
+                    microscope.changeC2Aperture(config.c2_apertures[0]) # Insert C2 aperture for WG state
+                    microscope.realignGrid(nav, wg_nav_id)
+                    # Use image alignment on IM image
+                    microscope.changeImagingState(settings["IM_image_state"], low_dose_expected=False)
+                    microscope.changeC2Aperture(config.c2_apertures[1]) # Insert C2 aperture for IM state
+                    im_nav_ids = nav.searchByEntry("label", "PP", partial=True)     # Preliminary position/polygon (PP)
+                    for nav_id in im_nav_ids:
+                        log (f"Realigning IM image {nav.items[nav_id].label}...")
+                        microscope.moveStage(nav.items[nav_id].stage)
+                        im_buf = Buffer("O", nav_id=nav_id)
+                        microscope.record()
+                        new_im_buf = Buffer("A")
+                        _, ss_shift = new_im_buf.alignTo(im_buf, avoid_image_shift=True)
+                        stage_shift = microscope.getMatrices()["ss2s"] @ ss_shift
+                        break # TODO: possibly add check for success
+                    nav.shiftItems(-stage_shift, skip_item_ids=[wg_nav_id])
 
             # Save WG map
             wg_map = Buffer(nav_id=wg_nav_id)
+            if not settings["lamella"]:
+                wg_map.findGrid(spacing_nm=50000) # 300 mesh should have ~50 micron spacing
+            imaging_params.WG_pix_size = wg_map.pix_size
             save_future = wg_map.saveImg(MAP_DIR / (grid_name + "_wg.png"), WG_model.pix_size)
 
             # Find lamellae on grid
             box_file = MAP_DIR / (grid_name + "_wg_boxes.json")
-            if not box_file.exists():
-                if not EXTERNAL_RUN:
-                    if save_future is not None:
-                        save_future.result()
-                        save_future = None
-                    WG_model.findLamellae(MAP_DIR, grid_name, threshold=config.WG_detection_threshold, device=utils.DEVICE)
-                else:
-                    # Wait for boxes file to be written
-                    log("Waiting for external lamella detection...")
-                    utils.waitForFile(box_file, "WARNING: Still waiting for lamella detection. Check if SPACEtomo_monitor.py is running!")
-            else:
-                log(f"WARNING: Previously detected lamellae were found. Skipping lamella detection!")
+            if settings["lamella"]:
+                roi_boxes = WG_model.findLamellae(grid_name, save_future=save_future, label_prefix="PP", exclude_cats=settings["exclude_lamella_classes"])
 
-            # Open lamella selection GUI if wait_for_inspection is selected and maps are not external and not already inspected
-            if settings["WG_wait_for_inspection"] and not EXTERNAL_RUN and not (MAP_DIR / (grid_name + "_wg_inspected.txt")).exists():
-                utils.guiProcess("lamella", MAP_DIR / (grid_name + "_wg.png"), auto_close=True)
+            # Open ROI selection GUI if wait_for_inspection is selected and maps are not external and not already inspected
+            if settings["WG_wait_for_inspection"] and not (MAP_DIR / (grid_name + "_wg_inspected.txt")).exists():
+                utils.guiProcess("grid", MAP_DIR / (grid_name + "_wg.png"), auto_close=True)
 
-            # Wait for lamella boxes to be inspected
+            # Wait for ROI boxes to be inspected
             if settings["WG_wait_for_inspection"]:
-                log("Waiting for lamella detection to be inspected by operator...")
+                log("Waiting for WG map to be inspected by operator...")
                 inspect_file = MAP_DIR / (grid_name + "_wg_inspected.txt")
                 utils.waitForFile(inspect_file, "Still waiting for inspection by operator...", msg_interval=180)
+                # Load boxes again after inspection
+                roi_boxes = Boxes(box_file, label_prefix="PP", exclude_cats=settings["exclude_lamella_classes"])
 
-            # Load boxes from file and remove undesired classes
-            lamella_boxes = Boxes(box_file, label_prefix="PL", exclude_cats=settings["exclude_lamella_classes"])
+            # Check for previously determined ROI positions
+            roi_PP_ids = nav.searchByEntry("label", "PP", partial=True)     # Preliminary position (PP)
+            roi_FP_ids = nav.searchByEntry("label", "FP", partial=True)     # Final position (FP)
+            log(f"DEBUG: PP entries: {len(roi_PP_ids)}")
+            log(f"DEBUG: FP entries: {len(roi_FP_ids)}")
 
-            # Check for previously determined lamella positions
-            lamella_PL_ids = nav.searchByEntry("label", "PL", partial=True)     # Preliminary lamellae (PL)
-            lamella_FL_ids = nav.searchByEntry("label", "FL", partial=True)     # Final lamellae (FL)
-            log(f"DEBUG: PL entries: {len(lamella_PL_ids)}")
-            log(f"DEBUG: FL entries: {len(lamella_FL_ids)}")
-
-            # Add boxes to nav via map buffer (if no lamella in nav yet)
-            if len(lamella_PL_ids) == 0:
-                wg_map.addNavBoxes(lamella_boxes, padding_factor=config.MM_padding_factor)
+            # Add boxes to nav via map buffer (if no polygons in nav yet)
+            if len(roi_PP_ids) == 0:
+                wg_map.addNavBoxes(roi_boxes, padding_factor=config.MM_padding_factor if settings["lamella"] else 1.0)
                 nav.pull()
 
-            # Check if intermediate mag step was done (if there are as many images as preliminary lamella points and final lamella points)
-            log(f"DEBUG: Test if IM has to be done:\nIM pngs: {len(list(MAP_DIR.glob(grid_name + '_IM*_wg.png')))}\nPL entries: {len(lamella_PL_ids)}\nFL entries: {len(lamella_FL_ids)}\n\n")
-            if not len(list(MAP_DIR.glob(grid_name + "_IM*_wg.png"))) == len(lamella_PL_ids) or not lamella_FL_ids:
-                log("DEBUG: Collecting IM images...\n")
-                microscope.changeImagingState(settings["WG_image_state"], low_dose_expected=False)
-                microscope.setMag(settings["IM_mag_index"])
-                lamella_nav_ids = nav.searchByEntry("label", "PL", partial=True)     # Preliminary lamellae (PL)
-                shifted = False
-                eucentricity = False
-                for n, nav_id in enumerate(lamella_nav_ids):
+                # Create virtual maps for IM alignment
+                for b, box in enumerate(roi_boxes.boxes):
+                    # Make virtual map from montage in buffer
+                    virt_map_file = CUR_DIR / (grid_name + f"_IM{b + 1}_ref.mrc")
+                    virt_map = np.flip(wg_map.getCropImage(np.flip(box.center) * roi_boxes.pix_size / wg_map.pix_size, np.flip(microscope.camera_dims)), axis=0)       # crop image and flip y-axis
+                    log(f"DEBUG: Virtual map dimenstions: {virt_map.shape}")
+                    utils.writeMrc(virt_map_file, virt_map, wg_map.pix_size)
 
-                    # If lamella nav item was already converted from polygon to map, skip it
-                    if nav.items[nav_id].entries["Type"] == ["2"]:
-                        log(f"WARNING: Lamella {n + 1} was already imaged at intermediate mag and will be skipped.")
-                        continue
+            if settings["automation_level"] >= 2:
+                # Check if intermediate mag step was done (if there are as many images as preliminary points and final points)
+                log(f"DEBUG: Test if IM has to be done:\nIM pngs: {len(list(MAP_DIR.glob(grid_name + '_IM*_wg.png')))}\nPP entries: {len(roi_PP_ids)}\nFP entries: {len(roi_FP_ids)}\n\n")
+                alignment = IMAlignment(CUR_DIR, MAP_DIR, microscope, nav, imaging_params, label_prefix="PP", final_prefix="FP", WG_model=WG_model if settings["lamella"] else None)
+                alignment.align(settings)
+                alignment.saveAlignment()
 
-                    log(f"Moving to lamella {n + 1}...")
-                    microscope.moveStage(nav.items[nav_id].stage)
+                roi_nav_ids = nav.searchByEntry("label", "FP", partial=True)     # Final position (FP)
 
-                    # Go to eucentricity roughly at IM mag
-                    if not eucentricity:
-                        microscope.eucentricity()
-                        eucentricity = True
-                        # Update z for all lamella items
-                        for nid in lamella_nav_ids:
-                            nav.items[nid].changeZ(microscope.stage[2])
-                        nav.push()
+                if not roi_nav_ids:
+                    log(f"WARNING: No regions of interest found on grid [{grid_name}]. If regions are visually identifiable, please check your settings or continue manually.")
+                    continue    # to next grid
 
-                    # Collect IM image and save as map
-                    log(f"Collecting intermediate mag image...")
-                    im_file = CUR_DIR / (grid_name + f"_IM{n + 1}.mrc")
-                    microscope.record(save=im_file)
-                    im_img = Buffer(buffer="A")
-                    im_nav_id = nav.newMap(buffer=im_img, img_file=im_file, label=f"PL{n + 1}", note=nav.items[nav_id].note, coords=nav.items[nav_id].stage) # Coords are only needed for DUMMY and ignored for normal map
-
-                    # Update IM pix_size
-                    if not imaging_params.IM_pix_size:
-                        imaging_params.IM_pix_size = im_img.pix_size
-
-                    # Save IM image
-                    if save_future is not None:
-                        save_future.result()
-                        save_future = None
-                    save_future = im_img.saveImg(MAP_DIR / (grid_name + f"_IM{n + 1}_wg.png"), WG_model.pix_size)
-
-                    # Retain preliminary polygon nav item in case no lamella is detected at IM
-                    pre_item = deepcopy(nav.items[nav_id])
-
-                    # Overwrite polygon with map
-                    nav.replaceItem(nav_id, im_nav_id)
-                    im_img.nav_id = nav_id # Update nav id of buffer
-
-                    # Find lamellae on image
-                    log(f"Finding lamella...")
-                    box_file = MAP_DIR / (grid_name + f"_IM{n + 1}_wg_boxes.json")
-                    if not EXTERNAL_RUN:
-                        if save_future is not None:
-                            save_future.result()
-                            save_future = None
-                        WG_model.findLamellae(MAP_DIR, grid_name + f"_IM{n + 1}", threshold=config.WG_detection_threshold, device=utils.DEVICE)
-                    else:
-                        # Wait for boxes file to be written
-                        log("Waiting for external lamella detection...")
-                        utils.waitForFile(box_file, "WARNING: Still waiting for lamella detection. Check if SPACEmonitor is running!")
-
-                    im_boxes = Boxes(box_file)
-
-                    if im_boxes:
-                        if len(im_boxes) > 1:
-                            log(f"WARNING: Found more than one lamella. Using lamella closest to image center.")
-
-                        # Only keep box closest to center
-                        im_boxes.sortBy("center_dist")
-                        im_boxes.boxes = im_boxes.boxes[:1]
-
-                        log(f"NOTE: Detected lamella of class: {config.WG_model_categories[im_boxes.boxes[0].cat]} [{round(im_boxes.boxes[0].prob * 100)} %]")
-
-                        # Check if too close to previously detected lamella
-                        lamella_FL_ids = nav.searchByEntry("label", "FL", partial=True)     # Final lamellae (FL)
-                        log(f"DEBUG: FL ids: {lamella_FL_ids}")
-                        if nav.searchByCoords(im_img.px2stage(im_boxes.boxes[0].center * (im_boxes.pix_size / im_img.pix_size)), margin=settings["WG_distance_threshold"], subset=lamella_FL_ids):
-                            log(f"DEBUG: Distance: {im_img.px2stage(im_boxes.boxes[0].center * (im_boxes.pix_size / im_img.pix_size))}")
-                            log(f"DEBUG: Search result: {nav.searchByCoords(im_img.px2stage(im_boxes.boxes[0].center * (im_boxes.pix_size / im_img.pix_size)), margin=settings['WG_distance_threshold'], subset=lamella_FL_ids)}")
-                            log(f"WARNING: Lamella seems to be among already detected lamellae and will be skipped.")
-                            continue
-
-                        # Add box to nav via map buffer
-                        im_img.addNavBoxes(im_boxes, labels=[f"FL{n + 1}"], padding_factor=config.MM_padding_factor)                 # Add final lamella
-                        nav.pull()
-
-                        # Shift items by vector between new box center stage coords and nav item stage coords
-                        if not shifted:
-                            #nav.shiftItems(nav.items[nav_id].getVector(im_img.px2stage(im_boxes.boxes[0].center * (im_boxes.pix_size / im_img.pix_size))))
-                            shift = nav.items[nav_id].getVector(im_img.px2stage(im_boxes.boxes[0].center * (im_boxes.pix_size / im_img.pix_size)))
-
-                            for remaining_nav_id in lamella_nav_ids[n + 1:]:
-                                log(f"DEBUG: Shifted item {remaining_nav_id} by {shift}")
-                                nav.items[remaining_nav_id].changeStage(shift, relative=True)
-
-                            shifted = True
-                            nav.push()
-
-                    else:
-                        # Retain preliminary lamella if initial confidence was high (includes manually selected lamella)
-                        if float(pre_item.entries["UserValue1"][0]) >= 0.9:
-                            nav.items.append(pre_item) # Add initial polygon back to nav
-                            pre_item.nav_index = len(nav) # Adjust nav_index
-                            nav.push()
-                            # Only rename label and note after nav was pushed as it will update SerialEM directly
-                            pre_item.changeLabel(f"FL{n + 1}")
-                            pre_item.changeNote(f"FL{n + 1}: " + pre_item.note.split(":")[1])
-                            log(f"WARNING: No lamella detected! Initially detected lamella was retained due to high confidence [{round(float(pre_item.entries['UserValue1'][0]) * 100)} %].")
-                        else:
-                            log(f"WARNING: No lamella detected. If you want to add lamellae manually, please select wait_for_inspection in the settings.")
-
-            lamella_nav_ids = nav.searchByEntry("label", "FL", partial=True)     # Final lamellae (FL)
-
-            if not lamella_nav_ids:
-                log(f"WARNING: No lamellae found on grid [{grid_name}]. If lamellae are visually identifiable, please check your settings or continue manually.")
-                continue    # to next grid
-
-            log("##### Completed lamella detection step! [Level 1] #####")
+            log("##### Completed WG map acquisition and MM map setup! [Level 1] #####")
 
     #########################################
     ############ STEP 2: MM maps ############
@@ -361,14 +286,16 @@ def main():
 
             # Enter Low Dose Mode
             microscope.changeImagingState(settings["MM_image_state"], low_dose_expected=True)
+            microscope.changeC2Aperture(config.c2_apertures[2]) # Insert C2 aperture for MM state
             if not microscope.low_dose:
-                log("WARNING: Lamella montage imaging state is NOT in Low Dose! This will cause issues with target selection.")
+                log("WARNING: Medium mag montage imaging state is NOT in Low Dose! This will cause issues with target selection.")
 
             # Get imaging parameters and save
             microscope.changeLowDoseArea("V")
-            imaging_params.getViewParams()
+            imaging_params.getViewParams(microscope)
             microscope.changeLowDoseArea("R")
-            imaging_params.getRecParams()
+            imaging_params.getRecParams(microscope)
+            imaging_params.getFocusParams(microscope)
 
             MM_model.setDimensions(imaging_params)
 
@@ -385,66 +312,25 @@ def main():
             if not EXTERNAL_RUN and (MAP_DIR / "SPACE_runs.json").exists():
                 (MAP_DIR / "SPACE_runs.json").replace(MAP_DIR / "SPACE_runs.json~")
 
-            # Collect MM montages at all lamella positions
+            # Collect MM montages at all ROI positions
             MM_map_ids = []
-            for i, nav_id in enumerate(lamella_nav_ids):
+            for i, nav_id in enumerate(roi_nav_ids):
                 # Make sure no MM map is waiting in queue before starting next montage. TODO: better queue management
                 if settings["automation_level"] >= 3 and not EXTERNAL_RUN and i > 0:
                     space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params)
 
-                # Get lamella map name
+                # Get MM map name
                 map_name = f"{grid_name}_L{str(i + 1).zfill(2)}"
                 map_file = CUR_DIR / (map_name + ".mrc")
 
-                # Collect montage
-                log(f"Collecting map for lamella {map_name}...")
-
-                # Check if montage already exists in nav
-                map_id = nav.getIDfromNote(map_file.name, warn=False)
-
-                # Check for reacquisition
-                if (MAP_DIR / (map_name + "_reacquire.txt")).exists():
-                    # Rename mrc file and nav item
-                    counter = 0
-                    while (new_mrc_file := CUR_DIR / f"{map_name}_old{counter}.mrc").exists():
-                        counter += 1
-                    map_file.replace(new_mrc_file)
-                    if (CUR_DIR / f"{map_file.name}.mdoc").exists():
-                        (CUR_DIR / f"{map_file.name}.mdoc").replace(CUR_DIR / f"{new_mrc_file.name}.mdoc")
-                    nav.items[map_id].map_file = new_mrc_file
-                    nav.items[map_id].changeNote(new_mrc_file.name)
-                    nav.items[map_id].changeLabel("old")
-
-                    # Delete map files
-                    map_file_list = MAP_DIR.glob(f"**/{map_name}*")
-                    for file in map_file_list:
-                        if file.exists():
-                            if file.is_file():
-                                log(f"DEBUG: Deleting {file}")
-                                file.unlink()
-                            elif file.is_dir():
-                                utils.rmDir(file)
-                    
-                    map_id = None
-
-                # Collect map if no nav item found
-                if map_id is None:
-                    # Delete potentially aborted montage file
-                    if map_file.exists():
-                        map_file.unlink()
-                    map_id = microscope.collectPolygonMontage(nav_id, map_file, config.MM_montage_overlap)
-                    nav.pull()
-                    nav.items[map_id].changeLabel(f"L{str(i + 1).zfill(2)}")
+                # Collect medium mag montage
+                mm_acquisition = MMMAcquisition(MAP_DIR, map_file, nav_id, microscope, nav)
+                mm_acquisition.realign(roi_nav_ids[i:])
+                map_id = mm_acquisition.collectMap()
+                save_future = mm_acquisition.saveMap(map_id, MM_model.pix_size, find_grid=not settings["lamella"], save_future=save_future)
                 MM_map_ids.append(map_id)
 
-                # Save montage as rescaled input image
-                log(f"Saving map for lamella {map_name}...")
-                map_img = Buffer(nav_id=map_id)
-                save_future = map_img.saveImg(MAP_DIR / (map_file.stem + ".png"), MM_model.pix_size)
-                if save_future is not None:
-                    save_future.result() # Temporary, because montage collection is not threaded, TODO: multiprocessing instead
-                    save_future = None
-
+                # Trigger segmentation
                 if settings["automation_level"] >= 3:
                     if settings["manual_selection"]:
                         MM_model.saveEmptySeg(MAP_DIR, map_name)
@@ -454,9 +340,9 @@ def main():
                             space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params)
 
                 # Open tgt selection GUI if manual_selection is selected and maps are not external (and only after first map finished collection)
-                if settings["automation_level"] >= 4 and i == 0 and settings["manual_selection"] and not EXTERNAL_RUN:
+                if settings["automation_level"] >= 4 and i == 0 and settings["manual_selection"]:
                     utils.guiProcess("targets", MAP_DIR, auto_close=True)
-            log("##### Completed collection of lamella maps! [Level 2] #####")
+            log("##### Completed collection of MM maps! [Level 2] #####")
 
     ##############################################
     ############ STEP 3: Target setup ############
@@ -468,13 +354,13 @@ def main():
             nav.pull()
             map_file = Path(nav.items[MM_map_ids[0]].note)
             utils.waitForFile(MAP_DIR / (map_file.stem + "_points*.json"), 
-                            "Waiting for first lamella to be processed before setting up targets...", 
+                            "Waiting for first MM map to be processed before setting up targets...", 
                             function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else lambda: utils.monitorExternal(MAP_DIR)
                             )
             # Make sure targets were inspected
             if settings["MM_wait_for_inspection"]:
                 # Open GUI if not already opened for manual selection
-                if not settings["manual_selection"] and not EXTERNAL_RUN:
+                if not settings["manual_selection"]:
                     utils.guiProcess("targets", MAP_DIR, auto_close=True)
                 # Wait for inspection
                 utils.waitForFile(MAP_DIR / (map_file.stem + "_inspected.txt"), 
@@ -502,7 +388,7 @@ def main():
                     if settings["automation_level"] < 5 or (settings["automation_level"] >= 5 and num_acq == 0):
                         # Wait for points files
                         utils.waitForFile(MAP_DIR / (map_file.stem + "_points*.json"), 
-                                        "Waiting for first lamella to be processed before setting up targets...", 
+                                        "Waiting for first MM map to be processed before setting up targets...", 
                                         function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else None
                                         )
                         # Make sure targets were inspected
@@ -512,7 +398,7 @@ def main():
                                             function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else None
                                             )
                     else:
-                        log("Target setup for remaining lamellae postponed until predictions are available.")
+                        log("Target setup for remaining MM maps postponed until predictions are available.")
                         break           # rely on SPACEtomo_postAction script to setup more targets between PACEtomo runs
 
 
@@ -524,7 +410,7 @@ def main():
                 else:
                     target_num = 0
 
-                    # Go over all target areas on lamella
+                    # Go over all target areas on MM map
                     point_files = sorted(MAP_DIR.glob(map_name + "_points*.json"))
                     for ta, point_file in enumerate(point_files):
                         if len(point_files) > 1:
@@ -541,7 +427,7 @@ def main():
                         target_area.checkISLimit()
 
                         # Set up navigator and create virtual maps
-                        target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav)
+                        target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav, grid_name)
 
                         # Save target file
                         targets, geo_points, tgt_settings = target_area.getTargetsInfo(area_name)
@@ -549,8 +435,16 @@ def main():
                         target_num += len(targets)
 
                     log(f"NOTE: Targets selected on {map_name}: {target_num}")
+                    total_targets += target_num
 
+            log(f"NOTE: Total targets selected: {total_targets}")
             log("##### Completed target selection step! [Level 4] #####")
+
+    # Check if any maps are marked for reacquisition
+    reacq_files = list(MAP_DIR.glob("*_reacquire.json"))
+    if reacq_files:
+        log(f"WARNING: The {len(reacq_files)} maps are marked for reacquisition. Please rerun the SPACEtomo script!")
+        usem.exitSPACEtomo()
 
     #############################################
     ############ STEP 4: Acquisition ############

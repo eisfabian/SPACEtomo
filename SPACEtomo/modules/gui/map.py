@@ -5,13 +5,15 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/09
-# Revision:     v1.2
-# Last Change:  2024/11/19: added loadTif
+# Revision:     v1.3
+# Last Change:  2025/02/04: added 16bit PNG support
+#               2024/11/19: added loadTif
 #               2024/08/09: separated from gui.py 
 # ===================================================================
 
 import os
 import time
+import json
 import shutil
 from pathlib import Path
 import numpy as np
@@ -34,9 +36,9 @@ else:
     IMOD = False
 
 class MMap:
-    def __init__(self, file_path, pix_size=1, stitched=True, tile_size=(1024, 1024), quantile=0.01, status=None) -> None:
+    def __init__(self, file_path, pix_size=0.1, stitched=True, tile_size=(1024, 1024), quantile=0.01, status=None) -> None:
         self.file = Path(file_path)
-        self.pix_size = pix_size
+        self.pix_size = pix_size # nm/px
         self.stitched = stitched
         self.tile_size = np.array(tile_size)
         self.status = status # for GUI status line update
@@ -44,6 +46,7 @@ class MMap:
         self.img_bin = self.img
         self.img_mod = None # Option to hold modified version of image
         self.binning = 1
+        self.meta_data = {}
 
         if self.file.suffix.lower() in [".mrc", ".map"]:
             if self.loadMrc(quantile=quantile):
@@ -56,21 +59,29 @@ class MMap:
                     return
             else:
                 # Catch truncated files
-                try:
-                    #self.img = np.array(Image.open(self.file)).astype(float) / 255
-                    self.img = utils.toNumpy(Image.open(self.file))
-                except OSError:
-                    log(f"ERROR: Image file [{self.file}] did not finish saving. Please try again later or make sure the file was not corrupted!")
-                    return
+                for attempt in range(retries := 5):
+                    try:
+                        #self.img = np.array(Image.open(self.file)).astype(float) / 255
+                        #self.img = utils.toNumpy(Image.open(self.file))
+                        self.loadPng()
+                        break
+                    except OSError:
+                        if attempt < retries - 1:
+                            log(f"ERROR: Image file [{self.file}] did not finish saving. Waiting and trying to load again...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            log(f"ERROR: Image file [{self.file}] did not finish saving. Please try again later or make sure the file was not corrupted!")
+                            return
             log(f"DEBUG: Loaded map in {time.time() - start} s. [{self.img.dtype}]")
 
-        # Fill also when loadMrc fails
-        self.pix_size = pix_size        # Angstrom / px
+        # Fill also when loading image fails
+        #self.pix_size = pix_size # nm/px
         self.tile_num = (self.img.shape[:2] / self.tile_size).astype(int)
         self.calculateTileBounds()
 
         # Dims in microns
-        self.dims_microns = np.flip(self.img.shape[:2]) * self.pix_size / 10000
+        self.dims_microns = np.flip(self.img.shape[:2]) * self.pix_size / 1000
 
     def loadMrc(self, quantile):
         """Loads mrc file and assembles montage. (TODO: outsource to Mrc class)"""
@@ -102,7 +113,7 @@ class MMap:
         with mrcfile.open(self.file, permissive=True) as mrc:
             # Get pixel data
             data = mrc.data
-            self.pix_size = float(mrc.voxel_size.x) #[A]
+            self.pix_size = float(mrc.voxel_size.x) / 10 # nm/px
         
             # Add third dimension in case of single image
             if data.ndim < 3:
@@ -245,7 +256,32 @@ class MMap:
         else:                           # XY format
             log(f"DEBUG: TIF: Single channel tif")
             self.img = exposure.rescale_intensity(img, out_range=(0, 255))
+
+        # Load meta_data if available
+        meta_file = self.file.with_suffix(".json")
+        if meta_file.exists():
+            with open(meta_file, "r") as f:
+                meta_data = json.load(f, object_hook=utils.revertTaggedString)
+            if "pix_size" in meta_data:
+                self.pix_size = meta_data["pix_size"]
+                
         return True
+
+    def loadPng(self):
+        """Loads png file."""
+
+        self.img = utils.toNumpy(Image.open(self.file))
+
+        if self.img.dtype == np.uint16:
+            self.img = (self.img / 65535 * 255).astype(np.uint8)
+
+        # Load meta_data if available
+        meta_file = self.file.with_suffix(".json")
+        if meta_file.exists():
+            with open(meta_file, "r") as f:
+                self.meta_data = json.load(f, object_hook=utils.revertTaggedString)
+            if "pix_size" in self.meta_data:
+                self.pix_size = self.meta_data["pix_size"]
 
     def checkBinning(self, default_binning=1):
         """Checks if map has to be binned."""
@@ -354,7 +390,7 @@ class MMap:
 
         log(f"Map texture was created in {time.time() - start} s.")
         
-        bounds = np.array(bounds) * self.pix_size / 10000 * self.binning
+        bounds = np.array(bounds) * self.pix_size / 1000 * self.binning
         return textures, bounds
 
     def rescale(self, rescale_pix_size, padding=(0, 0)):
@@ -433,16 +469,16 @@ class MMap:
     def px2microns(self, coords_px):
         """Converts img coordinates to plot coordinates."""
 
-        return np.array([coords_px[1] * self.pix_size / 10000, self.dims_microns[1] - coords_px[0] * self.pix_size / 10000])
+        return np.array([coords_px[1] * self.pix_size / 1000, self.dims_microns[1] - coords_px[0] * self.pix_size / 1000])
 
     def microns2px(self, coords_micron):
         """Converts plot coordinates to image coordinates."""
 
-        return np.array([self.img.shape[0] - coords_micron[1] / self.pix_size * 10000, coords_micron[0] / self.pix_size * 10000])
+        return np.array([self.img.shape[0] - coords_micron[1] / self.pix_size * 1000, coords_micron[0] / self.pix_size * 1000])
     
 
 class Segmentation:
-    def __init__(self, file_path, model, pix_size=1) -> None:
+    def __init__(self, file_path, model, pix_size=0.1) -> None:
         self.file = Path(file_path)
         # Check if file is .png file
         if file_path.suffix.lower() in [".png"]:
@@ -459,7 +495,7 @@ class Segmentation:
             self.valid = False
             return
         # Check if image has to be binned
-        self.pix_size = pix_size
+        self.pix_size = pix_size # nm/px
         self.checkBinning()
         # Get model for categories
         self.model = model
@@ -548,7 +584,7 @@ class Segmentation:
 
         log(f"DEBUG: Loaded texture in {time.time() - start} s.")
         
-        bounds = np.array(bounds) * self.pix_size / 10000 * self.binning
+        bounds = np.array(bounds) * self.pix_size / 1000 * self.binning
         return textures, bounds
 
 

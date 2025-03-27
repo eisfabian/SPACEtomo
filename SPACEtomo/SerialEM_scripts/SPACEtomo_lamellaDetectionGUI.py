@@ -15,11 +15,11 @@ except:
     log("ERROR: DearPyGUI module not installed! If you cannot install it, please run the target selection GUI from an external machine.")
     sys.exit()
 
-from SPACEtomo.modules.gui.lam_sel import LamellaGUI
+from SPACEtomo.modules.gui.lam_sel import GridGUI
 
 def main():
     dpg.create_context()
-    main = LamellaGUI()
+    main = GridGUI()
     main.show()
     dpg.destroy_context()
 

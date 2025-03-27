@@ -629,7 +629,7 @@ class Lamella:
                 #target_area["geo_points"] = self.geo_points
                 #lamella = {"points": self.points, "point_scores": self.point_scores, "geo_points": self.geo_points}
                 with open(os.path.join(self.map_dir, self.map_name + "_points" + str(t) + ".json"), "w+") as f:
-                    json.dump(target_area, f, indent=4, default=utils.convertArray)
+                    json.dump(target_area, f, indent=4, default=utils.convertToTaggedString)
         else:
             # Write empty points file to ensure empty targets file is written and map is considered processed
             with open(os.path.join(self.map_dir, self.map_name + "_points.json"), "w+") as f:
@@ -670,13 +670,13 @@ def runTargetSelection(map_dir, map_name, tgt_params, mic_params, MM_model, save
 class MicParams_ext:
     def __init__(self, map_dir):
         with open(os.path.join(map_dir, "mic_params.json"), "r") as f:
-            params = json.load(f, object_hook=utils.revertArray)
+            params = json.load(f, object_hook=utils.revertTaggedString)
         for key, value in params.items():
             vars(self)[key] = value
 
     def export(self, map_dir):
         with open(os.path.join(map_dir, "mic_params.json"), "w+") as f:
-             json.dump(vars(self), f, indent=4, default=utils.convertArray)
+             json.dump(vars(self), f, indent=4, default=utils.convertToTaggedString)
         log(f"NOTE: Saved microscope parameters at {os.path.join(map_dir, 'mic_params.json')}")
 
 class TgtParams:
@@ -730,7 +730,7 @@ class TgtParams:
 
     def loadFromFile(self, file_dir, MM_model):
         with open(os.path.join(file_dir, "tgt_params.json"), "r") as f:
-            params = json.load(f, object_hook=utils.revertArray)
+            params = json.load(f, object_hook=utils.revertTaggedString)
         for key, value in params.items():
             vars(self)[key] = value
 
@@ -750,7 +750,7 @@ class TgtParams:
 
         # Write file
         with open(os.path.join(map_dir, "tgt_params.json"), "w+") as f:
-             json.dump(vars(self), f, indent=4, default=utils.convertArray)
+             json.dump(vars(self), f, indent=4, default=utils.convertToTaggedString)
 
         # Restore weights
         self.weight = weight_matrix
@@ -876,8 +876,14 @@ def checkErr(map_dir, map_name):
     if os.path.exists(error_file):
         with open(error_file, "r", encoding="utf-8") as f:
             content = f.read()
-            if "not enough memory" in content or "truncated" in content:
-                log(f"ERROR: Out of memory or truncated segmentation error! Trying again...")
+            if "not enough memory" in content:
+                log(f"ERROR: Out of memory error! Trying again...")
+                return True
+            elif "truncated" in content:
+                log(f"ERROR: Truncated segmentation error! Trying again...")
+                return True
+            elif "broken PNG file" in content:
+                log(f"ERROR: PNG file is broken or not yet saved completely! Trying again...")
                 return True
             elif "No such file or directory" in content:
                 log(f"ERROR: File not found! Please ensure the config contains the proper segmentation script!")
@@ -926,7 +932,7 @@ def updateQueue(map_dir, WG_model=None, MM_model=None, mic_params=None, tgt_para
                 continue
             # Find lamellae
             log(f"Detecting lamellae on {os.path.basename(wg_map)}.png...")
-            bboxes = WG_model.findLamellae(map_dir, os.path.basename(wg_map), suffix=".png", device=device)
+            bboxes = WG_model.findLamellae(os.path.basename(wg_map), suffix=".png")
             log(f"Detected {len(bboxes)} lamellae.\n")
 
     # Run target selection

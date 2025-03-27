@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.2
-# Last Change:  2024/08/21: minor fixes after external test run
+# Last Change:  2025/01/10: Refactored findLamellae to account for both local and external runs
+#               2024/08/21: minor fixes after external test run
 #               2024/08/16: added sorting function, added meta data
 # ===================================================================
 
@@ -22,10 +23,15 @@ from SPACEtomo.modules.utils import log
 import SPACEtomo.config as config
 
 class WGModel:
-    def __init__(self, external=False):
+    def __init__(self, map_dir=None, external=False):
+
+        self.map_dir = map_dir
+
         if external:
+            self.external = True
             self.model = None
         else:
+            self.external = False
             from ultralytics import YOLO, settings
             model_file = Path(config.WG_model_file)
             if not model_file.exists():
@@ -43,12 +49,11 @@ class WGModel:
                 self.cat_colors[c] = self.cat_colors[c] / 255        # convert colors to float if given as RGB
         self.cat_nav_colors = config.WG_model_nav_colors
 
-    def findLamellae(self, map_dir, map_name, suffix="_wg.png", overlap_microns=10, threshold=0, save_boxes=True, device="cpu"):
+    def runModel(self, map_name, suffix="_wg.png", overlap_microns=10, threshold=0, device="cpu"):
         """Runs YOLO lamella detection on image file and compiles boxes."""
 
         # Load image from file
-        map_dir = Path(map_dir)
-        image = np.array(Image.open(map_dir / (map_name + suffix)))
+        image = np.array(Image.open(self.map_dir / (map_name + suffix)))
 
         # Calculate overlap of tiles in pixels
         overlap = overlap_microns * 1000 // self.pix_size
@@ -99,7 +104,7 @@ class WGModel:
                     else:
                         bboxes = bbox
                     
-        bboxes = Boxes(bboxes, label_prefix="PL", pix_size=config.WG_model_pix_size, img_size=image.shape)
+        bboxes = Boxes(bboxes, label_prefix="PP", pix_size=config.WG_model_pix_size, img_size=image.shape)
         log(f"Lamellae found (initial): \t{len(bboxes)}")
 
         if len(bboxes) > 0:
@@ -114,9 +119,28 @@ class WGModel:
         log(f"Lamellae found (final): \t{len(bboxes)}")
 
         # Save bboxes to output file
-        if save_boxes:
-            box_file = map_dir / (Path(map_name + suffix).stem + "_boxes.json")
-            bboxes.saveFile(box_file)
+        box_file = self.map_dir / (Path(map_name + suffix).stem + "_boxes.json")
+        bboxes.saveFile(box_file)
+
+        return bboxes
+    
+    def findLamellae(self, map_name, suffix="_wg.png", save_future=None, label_prefix="box", exclude_cats=[]):
+        # Find lamellae on grid
+        box_file = self.map_dir / f"{map_name}{suffix.split('.')[0]}_boxes.json"
+        if not box_file.exists():
+            if not self.external:
+                if save_future is not None:
+                    save_future.result()
+                    save_future = None
+                bboxes = self.runModel(map_name, suffix=suffix, overlap_microns=10, threshold=config.WG_detection_threshold, device=utils.DEVICE)
+            else:
+                # Wait for boxes file to be written
+                log("Waiting for external lamella detection...")
+                utils.waitForFile(box_file, "WARNING: Still waiting for lamella detection. Check if SPACEtomo_monitor.py is running!")
+                bboxes = Boxes(box_file, label_prefix=label_prefix, exclude_cats=exclude_cats)
+        else:
+            log(f"WARNING: Previously detected lamellae were found. Skipping lamella detection!")
+            bboxes = Boxes(box_file, label_prefix=label_prefix, exclude_cats=exclude_cats)
 
         return bboxes
 
@@ -178,11 +202,12 @@ class Boxes:
     def removeLowConfidence(self, threshold):
         """Removes boxes below confidence threshold."""
 
-        new_boxes = []
-        for box in self.boxes:
-            if box.prob > threshold:
-                new_boxes.append(box)
-        self.boxes = new_boxes
+        self.boxes = [box for box in self.boxes if box.prob > threshold]
+
+    def removeIds(self, ids):
+        """Removes boxes by id."""
+
+        self.boxes = [box for i, box in enumerate(self.boxes) if i not in ids]
 
     def saveFile(self, file):
         """Saves json file with bounding boxes."""
@@ -195,18 +220,19 @@ class Boxes:
 
         data = {"boxes": bboxes, "meta_data": meta_data}
         with open(file, "w") as f:
-            json.dump(data, f, indent=4, default=utils.convertArray)
+            json.dump(data, f, indent=4, default=utils.convertToTaggedString)
 
     def getFromFile(self, file):
         """Reads json box file."""
 
         with open(file, "r") as f:
-            data = json.load(f, object_hook=utils.revertArray)
+            data = json.load(f, object_hook=utils.revertTaggedString)
             if isinstance(data, dict):
                 bboxes = data["boxes"]
                 meta_data = data["meta_data"]
             else:
                 bboxes = data           # keep compatibility with boxes.json before meta_data
+                meta_data = {}
 
         if "pix_size" in meta_data.keys():
             self.pix_size = meta_data["pix_size"]

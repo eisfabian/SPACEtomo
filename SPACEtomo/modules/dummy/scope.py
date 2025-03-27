@@ -5,8 +5,9 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/09/02
-# Revision:     v1.2
-# Last Change:  2024/09/02: separated from modules/scope.py
+# Revision:     v1.3
+# Last Change:  2025/03/04: updated to make dummy run work again
+#               2024/09/02: separated from modules/scope.py
 # ===================================================================
 
 import mrcfile
@@ -17,7 +18,7 @@ from PIL import Image, ImageDraw
 import SPACEtomo.config as config
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules.dummy.buf import BufferDummy
-from SPACEtomo.modules.utils import log
+from SPACEtomo.modules.utils import log, writeMrc
 
 ### DEV SETTINGS ###
 # 
@@ -65,9 +66,8 @@ cats_intensity = {
 
 class MicroscopeDummy:
 
-    def __init__(self, imaging_params, cur_dir=None, map_dir=None, nav=None) -> None:
+    def __init__(self, cur_dir=None, map_dir=None, nav=None, imaging_params=None) -> None:
 
-        self.imaging_params = imaging_params
         self.low_dose = False
         self.low_dose_area = None
 
@@ -76,15 +76,13 @@ class MicroscopeDummy:
         self.is_limit = 15
         self.stage_limit = 990
 
-        self.imaging_params.IS_limit = self.is_limit
-
         # Properties
         self.ta_offset = 0.0
 
         # Check autoloader
         self.loaded_grid = None
         self.autoloader = {}
-        self.checkAutoloader()
+        #self.checkAutoloader()
 
         # Dummy state
         if not cur_dir:
@@ -99,6 +97,8 @@ class MicroscopeDummy:
             self.nav = Navigator(Path("temp.nav"))
         else:
             self.nav = nav
+        if not imaging_params:
+            self.imaging_params = None
 
         self.dummy_state = {}
         self.dummy_state["stage"] = np.zeros(3)
@@ -108,16 +108,18 @@ class MicroscopeDummy:
         self.dummy_state["defocus"] = 0.0
         self.dummy_state["spot_size"] = 6
         self.dummy_state["condenser_lens"] = 2.0
+        self.dummy_state["condenser_aperture"] = 50
+        self.dummy_state["objective_aperture"] = 100
+        self.dummy_state["beam_size"] = 2.0
+        self.dummy_state["beam_shift"] = np.zeros(2)
         self.dummy_state["beam_tilt"] = np.zeros(2)
         self.dummy_state["micro_probe"] = 1
         self.dummy_state["magnification"] = 33000
         self.dummy_state["camera"] = [0, None] # camera_id and read_mode
         self.dummy_state["energy_filter"] = [20, 0, 1] # slit_width, energy_loss, slit_in
+        self.dummy_state["exposure_time"] = 1.0
 
-        if isinstance(self.imaging_params.MM_image_state, list):
-            self.dummy_state["imaging_state"] = self.imaging_params.MM_image_state[0]
-        else:
-            self.dummy_state["imaging_state"] = self.imaging_params.MM_image_state
+        self.dummy_state["imaging_state"] = 1
 
     ### Properties
 
@@ -134,7 +136,7 @@ class MicroscopeDummy:
         return self.dummy_state["image_shift"]
     
     @property
-    def speciment_shift(self):
+    def specimen_shift(self):
         return self.dummy_state["specimen_shift"]
 
     @property
@@ -148,6 +150,22 @@ class MicroscopeDummy:
     @property
     def condenser_lens(self):
         return self.dummy_state["condenser_lens"]
+    
+    @property
+    def condenser_aperture(self):
+        return self.dummy_state["condenser_aperture"]
+
+    @property
+    def objective_aperture(self):
+        return self.dummy_state["objective_aperture"]
+
+    @property
+    def beam_size(self):
+        return self.dummy_state["beam_size"]
+
+    @property
+    def beam_shift(self):
+        return self.dummy_state["beam_shift"]
     
     @property
     def beam_tilt(self):
@@ -165,11 +183,27 @@ class MicroscopeDummy:
     def camera(self):
         camera_id, read_mode = self.dummy_state["camera"]
         return camera_id, read_mode
+
+    @property
+    def camera_dims(self):
+        return np.array([5760, 4092], dtype=int)
+    
+    @property
+    def camera_pix_size(self):
+        return 12323 / self.magnification
+    
+    @property
+    def exposure_time(self):
+        return self.dummy_state["exposure_time"]
     
     @property
     def energy_filter(self):
         slit_width, energy_loss, slit_in = self.dummy_state["energy_filter"]
         return slit_in, slit_width, energy_loss
+
+    @property
+    def has_energy_filter(self):
+        return True
     
     def getMatrices(self, mag_index=0, camera=None):
         matrices = {}
@@ -239,10 +273,28 @@ class MicroscopeDummy:
         self.dummy_state["condenser_lens"] = value
         log(f"#DUMMY: C2/3 was changed to {self.dummy_state['condenser_lens']}!")
 
-    def setBeamTilt(self, tilt_xy):
+    def setBeamShift(self, shift_xy=None, relative=False):
+        """Sets beam shift."""
+
+        if shift_xy and not relative:
+            self.dummy_state["beam_shift"] = np.array(shift_xy)
+        elif relative:
+            self.dummy_state["beam_shift"] += np.array(shift_xy)
+        else:
+            log(f"ERROR: No beam shift value given!")
+
+        log(f"#DUMMY: Beam shift was changed to {self.dummy_state['beam_shift']}!")
+
+    def setBeamTilt(self, tilt_xy=None, auto=False):
         """Sets beam tilt."""
 
-        self.dummy_state["beam_tilt"] = np.array(tilt_xy)
+        if tilt_xy and not auto:
+            self.dummy_state["beam_tilt"] = np.array(tilt_xy)
+        elif auto:
+            log(f"#DUMMY: Beam tilt was adjusted automatically.")
+        else:
+            log(f"ERROR: No beam tilt value given!")
+
         log(f"#DUMMY: Beam tilt was changed to {self.dummy_state['beam_tilt']}!")
 
     def setMicroProbe(self, probe_mode: int):
@@ -270,6 +322,12 @@ class MicroscopeDummy:
         self.dummy_state["energy_filter"] = [slit_width, energy_loss, slit_in]
         log(f"#DUMMY: Energy filter slit was changed to {slit_in} (width: {slit_width}, loss: {energy_loss})!")
 
+    def setExposureTime(self, time):
+        """Sets exposure time."""
+
+        self.dummy_state["exposure_time"] = time
+        log(f"#DUMMY: Exposure time was changed to {self.dummy_state['exposure_time']}!")
+
     def moveStage(self, xyz):
         """Moves stage to x, y, z."""
         
@@ -290,39 +348,56 @@ class MicroscopeDummy:
 
     ### Simple actions
 
-    def record(self, save=""):
+    def record(self, save="", view=False):
         """Records an image and optionally saves it to file."""
 
         # Figure out what kind of dummy image to generate
+        img_array = None
         if self.dummy_state["imaging_state"] == self.imaging_params.WG_image_state:
             # Generate LM image
             img_array = self.dummyImageWG()
             pix_size = self.imaging_params.WG_pix_size
-        elif self.dummy_state['magnification'] == self.imaging_params.IM_mag_index:
+        elif self.dummy_state['imaging_state'] == self.imaging_params.IM_image_state:
             # Generate IM image
             img_array = self.dummyImageIM()
             pix_size = self.imaging_params.IM_pix_size
         elif self.dummy_state["imaging_state"] == self.imaging_params.MM_image_state or self.dummy_state["imaging_state"] in self.imaging_params.MM_image_state:
-            if self.low_dose_area == "V":
+            if self.low_dose_area == "V" or view:
                 # Generate View image
                 pix_size = self.imaging_params.view_pix_size
             elif self.low_dose_area == "R":
                 # Generate Record image
                 pix_size = self.imaging_params.rec_pix_size
+            else:
+                pix_size = 0.1
         else:
-            # Generate random noise image
-            img_array = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32) 
             pix_size = 0.1
 
+        if img_array is None:
+            # Generate random noise image
+            img_array = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32) 
 
         # Find file to save to
         if save:
-            save = Path(save)        
-            with mrcfile.new(save, overwrite=True) as mrc:
-                mrc.set_data(img_array)
-                mrc.voxel_size = pix_size * 10 # Angstrom
+            save = Path(save)
+            if save.exists():
+                with mrcfile.open(save, mode="r+") as mrc:
+                    if mrc.data.ndim == 2:
+                        # If single 2D image, convert it to a stack
+                        mrc.set_data(np.stack([mrc.data, img_array], axis=0))
+                    else:
+                        # If already a stack of images, concatenate new image
+                        mrc.set_data(np.concatenate((mrc.data, img_array[np.newaxis, ...]), axis=0))
+                    mrc.update_header_from_data()
+                    mrc.update_header_stats()
+                log(f"#DUMMY: Image was appended to {save}!")
+            else:
+                writeMrc(save, img_array, pix_size)
+                log(f"#DUMMY: Image was saved to {save}!")
 
             BufferDummy.last_dummy_image = save
+        else:
+            BufferDummy.last_dummy_image = img_array
 
         log(f"#DUMMY: Image {save} was recorded!")
 
@@ -345,20 +420,36 @@ class MicroscopeDummy:
 
         log(f"#DUMMY: Stage was moved to eucentric height!")
 
+    def findZLP(self, interval_min=0):
+        """Runs zero loss peak routine."""
+
+        log(f"#DUMMY: ZLP was refined!")
+
     def changeImagingState(self, target_state, low_dose_expected=None):
         """Changes SerialEM imaging state."""
-
-        # Consider state 1 LM state and all others Low Dose states
-        if target_state > 1:
-            self.low_dose = True
-            self.low_dose_area = "R"
 
         # Deal with list of imaging states for different low dose areas
         if not isinstance(target_state, list):
             target_state = [target_state]
 
+        # Consider state 1 LM state and all others Low Dose states
+        if target_state[0] != 1 and target_state[0] != 10:
+            self.low_dose = True
+            self.low_dose_area = "R"
+
         for state in target_state:
             self.dummy_state["imaging_state"] = state
+            if state == self.imaging_params.WG_image_state:
+                self.dummy_state["magnification"] = 12323 / self.imaging_params.WG_pix_size
+            elif state == self.imaging_params.IM_image_state:
+                self.dummy_state["magnification"] = 12323 / self.imaging_params.IM_pix_size
+            elif state in self.imaging_params.MM_image_state:
+                if self.low_dose_area == "V":
+                    self.dummy_state["magnification"] = 12323 / self.imaging_params.view_pix_size
+                elif self.low_dose_area == "R":
+                    self.dummy_state["magnification"] = 12323 / self.imaging_params.rec_pix_size
+                else:
+                    self.dummy_state["magnification"] = 12323 / 0.1
             log(f"#DUMMY: Changed image state to {state}!")
 
         # Check if imaging state fits expectation
@@ -377,9 +468,26 @@ class MicroscopeDummy:
         else:
             log("ERROR: Imaging state is not in Low Dose!")
 
+    def exitLowDose(self, delay=1):
+        """Exits Low Dose mode."""
+
+        self.low_dose = False
+        self.low_dose_area = None
+
+    def changeC2Aperture(self, size=0):
+        """Inserts C2 aperture of given size or retracts aperture if size is 0."""
+
+        # Cannot take out C2 aperture
+        if not size:
+            return
+        
+        self.dummy_state["condenser_aperture"] = size
+        log(f"#DUMMY: Inserted C2 aperture with size {size}!")
+
     def changeObjAperture(self, size=0):
         """Inserts objective aperture of given size or retracts aperture if size is 0."""
 
+        self.dummy_state["objective_aperture"] = size
         log(f"#DUMMY: Inserted objective aperture with size {size}!")
 
     def openValves(open=True):
@@ -400,6 +508,10 @@ class MicroscopeDummy:
 
 
     def loadGrid(self, grid_slot):
+
+        if not len(self.autoloader):
+            self.checkAutoloader()
+
         # Initiate loading
         if grid_slot != self.loaded_grid:
             self.loaded_grid = grid_slot
@@ -407,19 +519,22 @@ class MicroscopeDummy:
         else:
             log(f"Grid [{self.autoloader[grid_slot]}] is already loaded.")
 
-    def realignGrid(self, map_id):
+    def realignGrid(self, nav: Navigator, map_id: int):
         """Realigns grid to previously taken whole grid map and transforms nav items accordingly."""
 
         log(f"WARNING: Grid was realigned to previously collected whole grid map. Targets selected previously might still be subject to residual shifts. Please check the realign to item procedure before starting data collection.")
 
     ### Complex actions
 
-    def collectFullMontage(self, model, overlap):
+    def collectFullMontage(self, imaging_params, model, overlap):
         """Collects full grid montage."""
-        
+
+        if not len(self.autoloader):
+            self.checkAutoloader()
+            
         grid_name = self.autoloader[self.loaded_grid]
 
-        self.changeImagingState(self.imaging_params.WG_image_state)
+        self.changeImagingState(imaging_params.WG_image_state)
         if self.low_dose:
             log("WARNING: Whole grid montage image state is in Low Dose! This might result in unreasonably large grid maps.")
 
@@ -428,7 +543,7 @@ class MicroscopeDummy:
         binning = 1
 
         # Save pix size
-        self.imaging_params.WG_pix_size = pix_size * binning
+        imaging_params.WG_pix_size = pix_size * binning
 
         # Setup montage
         grid_bar_num = 20
@@ -454,7 +569,7 @@ class MicroscopeDummy:
         lamella_img[int(lamella_img.shape[0] + lamella_height) // 2:, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
 
         # Align lamella with tilt axis
-        if abs(self.imaging_params.view_ta_rotation) < 45:
+        if abs(imaging_params.view_ta_rotation) < 45:
             lamella_img = lamella_img.T
 
         # Add lamellae at random coords
@@ -472,7 +587,7 @@ class MicroscopeDummy:
         grid_map_file = self.cur_dir / (grid_name + ".mrc")
         with mrcfile.new(grid_map_file, overwrite=True) as mrc:
             mrc.set_data(grid_map)
-            mrc.voxel_size = pix_size * 10
+            mrc.voxel_size = pix_size * 10 # Angstrom
 
         map_id = self.nav.newMapFromImg(label=grid_name[:6], template_id=None, coords=self.stage[:2], img_file=grid_map_file, note=grid_map_file.name)
 
@@ -582,7 +697,7 @@ class MicroscopeDummy:
         # Save map
         with mrcfile.new(file, overwrite=True) as mrc:
             mrc.set_data(lamella_map)
-            mrc.voxel_size = pix_size * 10
+            mrc.voxel_size = pix_size * 10 # Angstrom
 
         # Save seg in model pix size
         model_size = np.round(np.flip(seg_map.shape) * pix_size / config.MM_model_pix_size).astype(int)

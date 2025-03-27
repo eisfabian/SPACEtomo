@@ -31,7 +31,7 @@ import shutil
 from pathlib import Path
 
 from SPACEtomo.modules.utils import log
-from SPACEtomo.modules.gui.lam_sel import LamellaGUI
+from SPACEtomo.modules.gui.lam_sel import GridGUI
 from SPACEtomo.modules.gui.tgt_sel import TargetGUI
 
 # Attempt SerialEM import
@@ -56,17 +56,17 @@ def run_process(process):
 def main():
     # Process arguments
     parser = argparse.ArgumentParser(description="Command line interface for different SPACEtomo functions (e.g. GUIs).")
-    parser.add_argument("task", type=str, default="targets", help="Name of the SPACEtomo task to run. Options: targets -> Open target selection GUI | lamella -> Open lamella selection GUI | run -> Start SPACEtomo run | scripts -> Get copy of SerialEM scripts")
+    parser.add_argument("task", type=str, default="targets", help="Name of the SPACEtomo task to run. Options: targets -> Open target selection GUI | grid -> Open Region selection GUI | run -> Start SPACEtomo run | scripts -> Get copy of SerialEM scripts")
     parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map file to load in GUI [.png].")
     args = parser.parse_args()
 
     # Get GUI
     gui = None
     process = None
-    if args.task.lower() == "targets" or args.task.lower() == "target":
+    if "target" in args.task.lower():
         gui = TargetGUI
-    elif args.task.lower() == "lamella" or args.task.lower() == "lamellae":
-        gui = LamellaGUI
+    elif "lamella" in args.task.lower() or "roi" in args.task.lower() or "region" in args.task.lower() or "grid" in args.task.lower():
+        gui = GridGUI
     elif args.task.lower() == "run":
         if SERIALEM:
             from SPACEtomo import run

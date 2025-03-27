@@ -5,8 +5,10 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/08
-# Revision:     v1.2
-# Last Change:  2024/11/18: moved all texture deletions after plot deletions
+# Revision:     v1.3
+# Last Change:  2025/03/07: added PlotPolygon
+#               2025/01/30: added shifting of img series without replotting
+#               2024/11/18: moved all texture deletions after plot deletions
 #               2024/11/12: added annotations
 #               2024/11/08: added border dragging of boxes
 #               2024/08/08: separated from gui.py 
@@ -14,6 +16,7 @@
 
 import time
 import numpy as np
+from matplotlib.path import Path as mplPath
 import dearpygui.dearpygui as dpg
 
 from SPACEtomo.modules.gui.gui import COLORS
@@ -47,10 +50,13 @@ class Plot:
                 sorted_list = [item for _, item in sorted(zip(sortable_list, unsorted_list))]
                 setattr(self, list_name, sorted_list)
 
-    def makePlot(self, x_axis_label="x", y_axis_label="y", **kwargs):
+    def makePlot(self, x_axis_label="x", y_axis_label="y", no_legend=False, **kwargs):
         """Creates base plot object."""
 
         self.plot = dpg.add_plot(tag=self.tag, **kwargs)
+
+        if not no_legend:
+            dpg.add_plot_legend(parent=self.plot)
 
         self.x_axis = dpg.add_plot_axis(dpg.mvXAxis, label=x_axis_label, parent=self.plot)#, tag="x_axis")
         self.y_axis = dpg.add_plot_axis(dpg.mvYAxis, label=y_axis_label, parent=self.plot)#, tag="y_axis")
@@ -77,7 +83,7 @@ class Plot:
     def addSeries(self, x_vals, y_vals, label="", theme=""):
         """Plots a scatter series."""
 
-        self.series.append({"label": label, "plot": dpg.add_scatter_series(list(x_vals), list(y_vals), parent=self.x_axis)})
+        self.series.append({"label": label, "plot": dpg.add_scatter_series(list(x_vals), list(y_vals), parent=self.x_axis, label=label)})
         if theme and dpg.does_item_exist(theme):
             dpg.bind_item_theme(self.series[-1]["plot"], theme)
 
@@ -160,6 +166,24 @@ class Plot:
         if bounds is not None:
             dpg.configure_item(self.overlays[id]["plot"], bounds_min=(bounds[0][0], bounds[1][0]), bounds_max=(bounds[0][1], bounds[1][1]))
 
+    def shiftImg(self, id, shift):
+        """Shifts overlay image series."""
+
+        item_params = dpg.get_item_configuration(self.img[id]["plot"])
+        bounds_min = np.array(item_params["bounds_min"]) + shift
+        bounds_max = np.array(item_params["bounds_max"]) + shift
+
+        dpg.configure_item(self.img[id]["plot"], bounds_min=bounds_min, bounds_max=bounds_max) 
+
+    def shiftOverlay(self, id, shift):
+        """Shifts overlay image series."""
+
+        item_params = dpg.get_item_configuration(self.overlays[id]["plot"])
+        bounds_min = np.array(item_params["bounds_min"]) + shift
+        bounds_max = np.array(item_params["bounds_max"]) + shift
+
+        dpg.configure_item(self.overlays[id]["plot"], bounds_min=bounds_min, bounds_max=bounds_max) 
+
     """Methods to find specific plot elements whose label contains a keyword."""
     def getImgByKeyword(self, keyword):
         return [item["label"] for item in self.img if keyword in item["label"]]
@@ -173,12 +197,12 @@ class Plot:
     def getOverlaysByKeyword(self, keyword):
         return [item["label"] for item in self.overlays if keyword in item["label"]]    
 
-    def clearImg(self, labels=[], delete_textures=True):
+    def clearImg(self, labels=[], skip_labels=[], delete_textures=True):
         """Delete all or some plotted images and their textures."""
 
         remaining_list = []
         for img in self.img:
-            if labels and img["label"] not in labels:       # Option for removing only certain images
+            if (labels and img["label"] not in labels) or (skip_labels and img["label"] in skip_labels):       # Option for removing only certain images
                 remaining_list.append(img)
                 continue
             if dpg.does_item_exist(img["plot"]): 
@@ -189,12 +213,12 @@ class Plot:
 
         self.img = remaining_list
 
-    def clearSeries(self, labels=[]):
+    def clearSeries(self, labels=[], skip_labels=[]):
         """Delete all or some plotted scatter series."""
 
         remaining_list = []
         for series in self.series:
-            if labels and series["label"] not in labels:    # Option for removing only certain series
+            if (labels and series["label"] not in labels) or (skip_labels and series["label"] in skip_labels):    # Option for removing only certain series
                 remaining_list.append(series)
                 continue
             if dpg.does_item_exist(series["plot"]): 
@@ -210,12 +234,12 @@ class Plot:
                 dpg.delete_item(box)
         self.boxes = []
 
-    def clearOverlays(self, labels=[], delete_textures=True):
+    def clearOverlays(self, labels=[], skip_labels=[], delete_textures=True):
         """Delete all or some plotted overlays and their textures."""
 
         remaining_list = []
         for overlay in self.overlays:
-            if labels and overlay["label"] not in labels:   # Option for removing only certain series
+            if (labels and overlay["label"] not in labels) or (skip_labels and overlay["label"] in skip_labels):   # Option for removing only certain series
                 remaining_list.append(overlay)
                 continue
             if dpg.does_item_exist(overlay["plot"]): 
@@ -226,24 +250,24 @@ class Plot:
 
         self.overlays = remaining_list
 
-    def clearDragPoints(self, labels=[]):
+    def clearDragPoints(self, labels=[], skip_labels=[]):
         """Delete all or some drag points."""
 
         remaining_list = []
         for point in self.drag_points:
-            if labels and point["label"] not in labels:     # Option for removing only certain series
+            if (labels and point["label"] not in labels) or (skip_labels and point["label"] in skip_labels):     # Option for removing only certain series
                 remaining_list.append(point)
                 continue
             if dpg.does_item_exist(point["plot"]):
                 dpg.delete_item(point["plot"])
         self.drag_points = remaining_list
 
-    def clearAnnotations(self, labels=[]):
+    def clearAnnotations(self, labels=[], skip_labels=[]):
         """Delete all or some annotations."""
 
         remaining_list = []
         for annotation in self.annotations:
-            if labels and annotation["label"] not in labels:     # Option for removing only certain series
+            if (labels and annotation["label"] not in labels) or (skip_labels and annotation["label"] in skip_labels):     # Option for removing only certain series
                 remaining_list.append(annotation)
                 continue
             if dpg.does_item_exist(annotation["annotation"]):
@@ -273,7 +297,7 @@ class PlotBox:
 
         self.parent = parent
         self.color = color
-        self.thickness = 1
+        self.thickness = thickness
         self.rect = None
         self.annotation = None
 
@@ -308,6 +332,10 @@ class PlotBox:
     @property
     def width(self):
         return self.right - self.left
+    
+    @property
+    def area(self):
+        return self.width * self.height
     
     def startUpdate(self, coords):
         """Determines which update mode is appropriate depending on where coords are."""
@@ -417,6 +445,12 @@ class PlotBox:
         if dpg.does_item_exist(self.annotation):
             dpg.configure_item(self.annotation, color=self.color)
 
+    def highlight(self, factor=1.5):
+        """Highlights the box by scaling outline thickness."""
+
+        if dpg.does_item_exist(self.rect):
+            dpg.configure_item(self.rect, thickness=self.thickness * factor)
+
     def within(self, coords, margin=0):
         """Checks if coords are within the box (or within margin of the box)."""
 
@@ -442,4 +476,157 @@ class PlotBox:
         
         if dpg.does_item_exist(self.annotation):
             dpg.delete_item(self.annotation)
-        dpg.delete_item(self.rect)
+        self.annotation = None
+        if dpg.does_item_exist(self.rect):
+            dpg.delete_item(self.rect)
+        self.rect = None
+
+    def __repr__(self):
+        return f"PlotBox({self.p1}, {self.p2})"
+
+class PlotPolygon:
+    """Class for polygon on plot."""
+
+    def __init__(self, coords, parent, color=COLORS["error"], thickness=1) -> None:
+        """Initializes polygon."""
+
+        self.parent = parent
+        self.color = color
+        self.thickness = thickness
+
+        # Plot elements
+        self.edges = []
+        self.polygon = None
+        self.annotation = None
+
+        # Polygon state
+        self.open = True
+        self.points = np.array([coords, coords])
+
+    @property
+    def center(self):
+        return np.mean(self.points, axis=0)
+    
+    @property
+    def top(self):
+        return np.max(self.points[:, 1])
+    
+    @property
+    def bottom(self):
+        return np.min(self.points[:, 1])
+    
+    @property
+    def height(self):
+        return self.top - self.bottom
+    
+    @property
+    def left(self):
+        return np.min(self.points[:, 0])
+    
+    @property
+    def right(self):
+        return np.max(self.points[:, 0])
+    
+    @property
+    def width(self):
+        return self.right - self.left
+    
+    @property
+    def area(self):
+        """Calculates area of polygon using Shoelace formula."""
+
+        return np.abs(np.sum(self.points[:-1, 0] * self.points[1:, 1] - self.points[1:, 0] * self.points[:-1, 1])) / 2
+    
+    def addPoint(self, coords):
+        """Adds a point to the polygon."""
+
+        # If point is close to first point (5% of width/height?), close polygon instead of adding
+        if np.linalg.norm(coords - self.points[0]) < 0.05 * min(self.width, self.height):
+            self.close()
+        else:
+            self.points = np.vstack([self.points, coords])#np.vstack([self.points[:-1], coords, self.points[0]])
+            self.draw()
+
+    def updateThickness(self, thickness):
+        """Updates border thickness of box plot."""
+
+        self.thickness = thickness
+        if dpg.does_item_exist(self.polygon):
+            dpg.configure_item(self.polygon, thickness=self.thickness)
+
+    def updateColor(self, color):
+        """Updates border color of box plot."""
+
+        self.color = color
+        if dpg.does_item_exist(self.polygon):
+            dpg.configure_item(self.polygon, color=self.color)
+        if dpg.does_item_exist(self.annotation):
+            dpg.configure_item(self.annotation, color=self.color)
+
+    def highlight(self, factor=1.5):
+        """Highlights the box by scaling outline thickness."""
+
+        if dpg.does_item_exist(self.polygon):
+            dpg.configure_item(self.polygon, thickness=self.thickness * factor)
+
+    def within(self, coords, margin=0):
+        """Checks if coords are within polygon using matplotlib implementation (cannot deal with margins)."""
+
+        return mplPath(self.points).contains_point(coords)
+        
+    def drawLabel(self, label, offset=(10, -10)):
+        """Draws an annotation on the plot."""
+
+        if dpg.does_item_exist(self.annotation):
+            dpg.delete_item(self.annotation)
+
+        # Find closest point to top right
+        closest_point = self.points[np.argmin(np.linalg.norm(self.points - np.array([self.right, self.top]), axis=1))]
+
+        self.annotation = dpg.add_plot_annotation(label=label, default_value=closest_point.tolist(), offset=offset, color=self.color, clamped=False, parent=self.parent)
+
+    def draw(self):
+        """Draws the polygon on the plot."""
+
+        if self.open:
+            # Remove old plots
+            self.remove()
+            # Draw only lines
+            for i in range(len(self.points) - 1):
+                self.edges.append(dpg.draw_line(self.points[i].tolist(), self.points[i + 1].tolist(), color=self.color, thickness=self.thickness, parent=self.parent))
+        else:
+            # Draw or update polygon
+            if self.polygon is None:
+                self.polygon = dpg.draw_polygon(self.points.tolist(), color=self.color, thickness=self.thickness, parent=self.parent)
+            else:
+                dpg.configure_item(self.polygon, points=self.points.tolist())
+
+    def close(self):
+        """Closes the polygon."""
+
+        self.open = False
+        self.points = np.vstack([self.points, self.points[0]])
+
+        # Remove edges
+        for edge in self.edges:
+            if dpg.does_item_exist(edge):
+                dpg.delete_item(edge)
+        self.edges = []
+        self.draw()
+
+    def remove(self):
+        """Deletes the polygon and annotation from the plot."""
+        
+        if dpg.does_item_exist(self.annotation):
+            dpg.delete_item(self.annotation)
+        self.annotation = None
+        if dpg.does_item_exist(self.polygon):
+            dpg.delete_item(self.polygon)
+        self.polygon = None
+        for edge in self.edges:
+            if dpg.does_item_exist(edge):
+                dpg.delete_item(edge)
+        self.edges = []
+
+    def __repr__(self):
+        return f"PlotPolygon({self.points})"

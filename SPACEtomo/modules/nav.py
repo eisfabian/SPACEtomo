@@ -5,8 +5,9 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
-# Revision:     v1.2
-# Last Change:  2024/09/04: added newPolygon function
+# Revision:     v1.3
+# Last Change:  2024/12/23: Updated shiftItems function to not use sem
+#               2024/09/04: added newPolygon function
 #               2024/08/23: allowed creation of minimal map without template
 #               2024/08/19: added creation of new map and point items
 #               2024/08/16: added change item functions, added writeToFile, newMap, replaceItem functions 
@@ -30,7 +31,7 @@ import numpy as np
 import mrcfile
 
 from SPACEtomo.modules.buf import Buffer
-from SPACEtomo.modules.utils import log
+from SPACEtomo.modules.utils import log, getCurDir, writeMrc
 from SPACEtomo.modules.utils import serialem_check, dummy_skip, dummy_replace
 
 class NavItem:
@@ -99,6 +100,21 @@ class NavItem:
         if self.map_file:
             self.entries["MapFile"] = [str(self.map_file)]                              # Parse map file
 
+    @property
+    def area(self):
+        """Calculates area of polygon."""
+
+        if self.item_type == 0:
+            log(f"ERROR: Can only calculate area of polygon or map navigator item. [Type: {self.item_type}]")
+            return 0
+
+        # Get relative pts coords
+        pts_x = np.array([float(x) - self.stage[0] for x in self.entries["PtsX"]])
+        pts_y = np.array([float(y) - self.stage[1] for y in self.entries["PtsY"]])
+
+        # Calculate area using Shoelace formula
+        return 0.5 * np.abs(np.dot(pts_x, np.roll(pts_y, 1)) - np.dot(pts_y, np.roll(pts_x, 1)))
+
     def changeColor(self, color_id):
         """Changes color of nav item (0 = red; 1 = green; 2 = blue; 3 = yellow; 4 = magenta; 5 = no realign)."""
 
@@ -137,17 +153,14 @@ class NavItem:
         self.entries["Acquire"] = [str(acquire)]
 
         if SERIALEM:
-            sem.SetItemAcquire(self.nav_index)
+            sem.SetItemAcquire(self.nav_index, acquire)
 
     def changeStage(self, coords, relative=False):
         """Changes stage coordinates."""
 
         # Add z coord if not given
         if len(coords) < 3:
-            if relative:
-                coords = np.append(coords, 0)
-            else:
-                coords = np.append(coords, self.stage[2])
+            coords = np.append(coords, 0 if relative else self.stage[2])
 
         # Get relative pts coords
         pts_x = [float(x) - self.stage[0] for x in self.entries["PtsX"]]
@@ -172,6 +185,23 @@ class NavItem:
             self.stage[2] = z
         self.revertEntries()
 
+    def scaleBounds(self, factor):
+        """Scales bounds by adjusting PtsX and PtsY lists. (Only for polygons.)"""
+
+        if self.item_type != 1:
+            log(f"ERROR: Can only scale polygon navigator item. [Type: {self.item_type}]")
+            return
+        
+        # Get relative pts coords
+        pts_x = np.array([float(x) - self.stage[0] for x in self.entries["PtsX"]])
+        pts_y = np.array([float(y) - self.stage[1] for y in self.entries["PtsY"]])
+
+        pts_x *= factor
+        pts_y *= factor
+
+        self.entries["PtsX"] = [str(x + self.stage[0]) for x in pts_x]
+        self.entries["PtsY"] = [str(y + self.stage[1]) for y in pts_y]
+
     def addEntry(self, key, value):
         """Adds any entry to nav item."""
 
@@ -185,13 +215,13 @@ class NavItem:
 
         coords = np.array(coords)
         #log(f"DEBUG: Distance: {self.stage[:2]}, {coords}, {np.linalg.norm(self.stage[:2] - coords)}")
-        return np.linalg.norm(self.stage[:2] - coords)
+        return np.linalg.norm(self.stage[:2] - coords[:2])
     
     def getVector(self, coords):
         """Calculates vector to coords."""
 
         coords = np.array(coords)
-        return coords - self.stage[:2]
+        return coords[:2] - self.stage[:2]
     
     def createMap(self, template, stage, file, map_id, note=""):
         """Creates new map item from image file and template."""
@@ -210,34 +240,36 @@ class NavItem:
 
         # Calculate point coords using dimensions and inverse of MapScaleMat matrix
         points = np.array([[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]]) * dims
-        px2stage = np.linalg.inv(np.array(template.entries["MapScaleMat"], dtype=np.float32).reshape((2, 2)))
+        map_scale_mat = np.array(template.entries["MapScaleMat"], dtype=np.float32).reshape((2, 2)) * float(template.entries["MapBinning"][0]) / float(template.entries["MontBinning"][0])
+        px2stage = np.linalg.inv(map_scale_mat) 
         points = np.array([px2stage @ point for point in points]) + stage[:2]
         pts_x, pts_y = points[:, 0], points[:, 1]
 
         # Go through all required entries
-        self.entries["Color"] = ["2"]                                           # Default map color is blue
-        self.entries["StageXYZ"] = [str(x) for x in stage]                      # XYZ stage coords
-        self.entries["NumPts"] = ["5"]                                          # 5 points to define rectangle
-        self.entries["Regis"] = template.entries["Regis"]                       # Registration
-        self.entries["Type"] = ["2"]                                            # Type map is 2
+        self.entries["Color"] = ["2"]                                               # Default map color is blue
+        self.entries["StageXYZ"] = [str(x) for x in stage]                          # XYZ stage coords
+        self.entries["NumPts"] = ["5"]                                              # 5 points to define rectangle
+        self.entries["Regis"] = template.entries["Regis"]                           # Registration
+        self.entries["Type"] = ["2"]                                                # Type map is 2
         self.entries["Note"] = note.split(" ") if isinstance(note, str) else note
-        self.entries["SamePosId"] = [str(map_id)]                               # ID of map at same coords
-        self.entries["MapFile"] = [str(file)]                                   # Image file of map
-        self.entries["MapID"] = [str(map_id)]                                   # Map has to be unique
-        self.entries["MapMontage"] = ["0"]                                      # Map is not a montage
-        self.entries["MapSection"] = ["0"]                                      # Map is only section in file
-        self.entries["MapBinning"] = template.entries["MapBinning"]             # Map binning
-        self.entries["MapMagInd"] = template.entries["MapMagInd"]               # Map mag index
-        self.entries["MapCamera"] = template.entries["MapCamera"]               # Camera number
-        self.entries["MapScaleMat"] = template.entries["MapScaleMat"]           # Stage to pixel scale matrix for drawing (might be off when taken from montage template)
-        self.entries["MapWidthHeight"] = [str(dim) for dim in dims]             # Size of initial map image
+        self.entries["SamePosId"] = [str(map_id)]                                   # ID of map at same coords
+        self.entries["MapFile"] = [str(file)]                                       # Image file of map
+        self.entries["MapID"] = [str(map_id)]                                       # Map has to be unique
+        self.entries["MapMontage"] = ["0"]                                          # Map is not a montage
+        self.entries["MapSection"] = ["0"]                                          # Map is only section in file
+        self.entries["MapBinning"] = "1"                                            # Map binning
+        self.entries["MontBinning"] = "1"                                           # Montage binning
+        self.entries["MapMagInd"] = template.entries["MapMagInd"]                   # Map mag index
+        self.entries["MapCamera"] = template.entries["MapCamera"]                   # Camera number
+        self.entries["MapScaleMat"] = [str(val) for val in np.ravel(map_scale_mat)] # Stage to pixel scale matrix for drawing (might be off when taken from montage template)
+        self.entries["MapWidthHeight"] = [str(dim) for dim in dims]                 # Size of initial map image
 
         # Optional entries
-        self.entries["MapMinMaxScale"] = min_max_scale                          # Min and max scale values of image when map was defined
-        self.entries["MapFramesXY"] = ["0", "0"]                                # Number of montage frames
-        self.entries["ImageType"] = ["0"]                                       # 0 for mrc file
+        self.entries["MapMinMaxScale"] = min_max_scale                              # Min and max scale values of image when map was defined
+        self.entries["MapFramesXY"] = ["0", "0"]                                    # Number of montage frames
+        self.entries["ImageType"] = ["0"]                                           # 0 for mrc file
 
-        other_entries = ["MontBinning", "MapExposure", "MapSpotSize", "MapIntensity", "MapSlitIn", "MapSlitWidth", "DefocusOffset", "K2ReadMode", "NetViewShiftXY", "ViewBeamShiftXY", "ViewBeamTiltXY", "MapProbeMode", "MapLDConSet", "MapTiltAngle"]
+        other_entries = ["MapExposure", "MapSpotSize", "MapIntensity", "MapSlitIn", "MapSlitWidth", "DefocusOffset", "K2ReadMode", "NetViewShiftXY", "ViewBeamShiftXY", "ViewBeamTiltXY", "MapProbeMode", "MapLDConSet", "MapTiltAngle"]
         for entry in other_entries:
             if entry in template.entries.keys():
                 self.entries[entry] = template.entries[entry]
@@ -330,6 +362,7 @@ class Navigator:
         self.file = file
         self.header = ""
         self.items = []
+        self.selected_item = None
 
         if self.file:
             self.file = Path(file)
@@ -340,6 +373,10 @@ class Navigator:
                 self.openNew()
         elif is_open:
             self.getOpen()
+
+        self.getSelectedItem()
+
+        self.setMapIDCounter()
 
     def readFromFile(self):
         """Reads lines from navigator text file and delegates to NavItem to read item blocks."""
@@ -418,9 +455,10 @@ class Navigator:
 
         # If nav is not saved
         elif nav_status == 1:
-            sem.SaveNavigator("temp.nav")
+            temp_file = getCurDir() / "temp.nav"
+            sem.SaveNavigator(str(temp_file))
             sem.CloseNavigator()
-            log("WARNING: Open navigator was saved as temp.nav and closed!")
+            log(f"WARNING: Open navigator was saved as [{temp_file}] and closed!")
 
         # Open new nav
         sem.OpenNavigator(str(self.file))
@@ -430,7 +468,17 @@ class Navigator:
     def getOpen(self):
         """Gets file from open nav in SerialEM."""
 
-        self.file = Path(sem.ReportNavFile())
+        nav_status = sem.ReportIfNavOpen()
+        if nav_status == 0:
+            raise ValueError("No navigator file is open in SerialEM!")
+        # If nav is not saved
+        elif nav_status == 1:
+            temp_file = getCurDir() / "temp.nav"
+            log(f"WARNING: Navigator is not saved! Saving it as [{temp_file}]...")
+            self.file = temp_file
+        else:
+            self.file = Path(sem.ReportNavFile())
+        
         self.pull()
 
     def pull(self):
@@ -459,15 +507,50 @@ class Navigator:
         if SERIALEM:
             sem.ReadNavFile(str(self.file))
 
-    @dummy_skip
-    @serialem_check
-    def shiftItems(self, shift):
+    def setMapIDCounter(self):
+        """Sets map ID counter to highest custom map ID in navigator."""
+        
+        map_ids = [int(item.entries["MapID"][0]) for item in self.items if "MapID" in item.entries.keys()]
+        while self.map_id_counter in map_ids:
+            self.map_id_counter += 1
+
+    def getSelectedItem(self):
+        """Gets selected item from SerialEM."""
+
+        if len(self.items) > 0:
+            if SERIALEM:
+                self.selected_item = self.items[int(sem.ReportNavItem()[0]) - 1]
+            else:
+                self.selected_item = self.items[0]
+        else:
+            self.selected_item = None
+
+    def setSelectedItem(self, item_id):
+        """Sets selected item in SerialEM."""
+
+        self.selected_item = self.items[item_id]
+
+        if SERIALEM:
+            sem.SetSelectedNavItem(item_id + 1)
+
+    def shiftItems(self, shift, item_ids=[], skip_item_ids=[]):
         """Shift all navigator items by shift in microns."""
         
         log(f"Shifting items by {shift}!")
-        sem.ShiftItemsByMicrons(*shift)
+        #sem.ShiftItemsByMicrons(*shift)
+        #self.pull()
 
-        self.pull()
+        counter = 0
+        for i, item in enumerate(self.items):
+            if item_ids and i not in item_ids:
+                continue
+            if skip_item_ids and i in skip_item_ids:
+                continue
+            item.changeStage(shift, relative=True)
+            counter += 1
+        self.push()
+
+        log(f"DEBUG: Shifted {counter} items by {shift}!")
 
     @dummy_replace("newMapFromImg")
     @serialem_check
@@ -509,13 +592,22 @@ class Navigator:
 
         return nav_id
     
-    def newMapFromImg(self, img_file="", template_id=None, coords=(0, 0, 0), label="", note="", **kwargs):      # Only accept keyword args to make compatible with newMap
+    def newMapFromImg(self, buffer=None, img_file="", template_id=None, coords=(0, 0, 0), label="", note="", **kwargs):      # Only accept keyword args to make compatible with newMap
         """Makes new map from image file without SerialEM."""
 
         if template_id is not None:     # If template is None, a minimal template with default values will be used
             template = self.items[template_id]
         else:
             template = None
+
+        # Save if file does not exist yet but image is in buffer
+        if img_file and not Path(img_file).exists():
+            log(f"WARNING: File [{img_file}] does not exist. Attempting to save...")
+            if buffer:
+                writeMrc(img_file, buffer.img, buffer.pix_size)
+                log(f"DEBUG: Buffer image was saved to {img_file}!")
+            else:
+                log(f"ERROR: No image file or buffer was given to create map from!")
 
         nav_item = NavItem(len(self), label=label)
         nav_item.createMap(template, coords, img_file, self.map_id_counter, note)
@@ -524,7 +616,7 @@ class Navigator:
         self.items.append(nav_item)
 
         # Reload nav
-        self.push()
+        #self.push() # Moved outside of function to save on nav reloads
 
         return len(self) - 1
     
@@ -581,17 +673,23 @@ class Navigator:
 
         return len(self) - 1    # nav_id
 
-    def replaceItem(self, old_id, new_id):
+    def replaceItem(self, old_id, new_item):
         """Replaces an old item with a new item."""
 
-        self.items[old_id] = self.items[new_id]
-        self.items.pop(new_id)
+        # Check if new item is NavItem, otherwise assume new_item is nav_id and get item from list
+        if isinstance(new_item, NavItem):
+            self.items[old_id] = new_item
+            self.items[old_id].nav_index = old_id + 1
+        else:
+            self.items[old_id] = self.items[new_item]
+            self.items[old_id].nav_index = old_id + 1
+            self.items.pop(new_item)
 
         # Reload nav
         self.push()
 
     def getIDfromNote(self, note, warn=True):
-        """Finds index if item by note."""
+        """Finds index of item by note."""
 
         candidates = [id for id, item in enumerate(self.items) if item.note == note]
 
@@ -674,38 +772,3 @@ class Navigator:
     
     def __iter__(self):
         return iter(self.items)
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    test_nav = Path("/Users/eifabian/Documents/temp/GW282_g4.nav")
-
-    nav = Navigator(test_nav)
-
-    print(len(nav))
-    print(nav.header)
-
-    print(nav.getIDfromNote("good (86%)"))
-
-    print(nav.getIDfromNote("20240528_GW282_g4_l10_tgts.txt"))
-
-    #print(nav.getIDfromNote("fail"))
-
-    result = nav.searchByEntry("label", "PL", partial=True)
-    print(result)
-
-    coords = (318.903, -699.347)
-    result = nav.searchByCoords(coords, 5, result)
-    print(result)
-
-    for item in result:
-        print(nav.items[item].label, nav.items[item].stage)
-
-    nav.writeToFile(test_nav.parent / (test_nav.stem + "_rewritten.nav"))
-
-    print(nav.items[5].entries["Color"])

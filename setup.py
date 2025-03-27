@@ -26,7 +26,7 @@ setup(
     license=open('LICENSE').read(),
     keywords=["SPACEtomo", "cryoET", "tomography", "electron-tomography", "SerialEM"],
     maintainer="Fabian Eisenstein",
-    maintainer_email="fabian.eisenstein@ethz.ch",
+    maintainer_email="spacetomo.help@gmail.com",
     packages=find_packages(), # Automatically find packages
     install_requires=[
         "matplotlib>=3.5; python_version>='3.9'",

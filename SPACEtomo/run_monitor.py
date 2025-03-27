@@ -59,7 +59,7 @@ def main():
     save_plot = args.save_plot
 
     # Load model
-    WG_model = WGModel()
+    WG_model = WGModel(MAP_DIR)
 
     MM_model = None
     mic_params = None

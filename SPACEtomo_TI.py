@@ -174,12 +174,12 @@ def inf_loadMap(sender, app_data):
             data = np.expand_dims(data, 0)
 
         header = mrc.header
-        pix_size = float(mrc.voxel_size.x)
+        pix_size = float(mrc.voxel_size.x) / 10 # nm/px
 
         # Save metadata
-        meta_data = {"original_map": {"path": file_path, "name": os.path.splitext(os.path.basename(file_path))[0], "pixel_size": round(pix_size, 2), "min_val": vals[0], "max_val": vals[1], "mean_val": vals[2], "tiles": data.shape[0], "tile_dimensions": data[0].shape}}
+        meta_data = {"original_map": {"path": file_path, "name": os.path.splitext(os.path.basename(file_path))[0], "pixel_size": round(pix_size, 3), "min_val": vals[0], "max_val": vals[1], "mean_val": vals[2], "tiles": data.shape[0], "tile_dimensions": data[0].shape}}
 
-    print("Pixel size:", pix_size)
+    print("Pixel size [nm/px]:", pix_size)
 
     if data.shape[0] == 1: mont_shape = [1, 1]
     elif data.shape[0] == 4: mont_shape = [2, 2]
@@ -224,7 +224,7 @@ def inf_loadMap(sender, app_data):
         for j in range(mont_shape[0]):
             tile = i * mont_shape[0] + j
             if tile >= len(data): break
-            bounds = np.array([i * data.shape[2], (mont_shape[0] - (j + 1)) * data.shape[1], (i + 1) * data.shape[2], (mont_shape[0] - j) * data.shape[1]]) * pix_size / 10000
+            bounds = np.array([i * data.shape[2], (mont_shape[0] - (j + 1)) * data.shape[1], (i + 1) * data.shape[2], (mont_shape[0] - j) * data.shape[1]]) * pix_size / 1000
             image = np.ravel(np.dstack([data[tile], data[tile], data[tile], np.full(data[tile].shape, 255)])) / 255
 
             if not dynamic_textures:
@@ -255,7 +255,7 @@ def inf_loadMap(sender, app_data):
 
     inf_outlineExportedTiles()
 
-    dpg.set_item_label("inf_plot", os.path.basename(file_path) + " [" + str(round(pix_size, 1)) + " Å/px]")
+    dpg.set_item_label("inf_plot", os.path.basename(file_path) + " [" + str(round(pix_size, 2)) + " nm/px]")
 
     if len(map_list) > 1:
         next_map_id = map_list.index(file_path) + 1
@@ -289,7 +289,7 @@ def inf_outlineExportedTiles():
             tile_list.append(tile_id)
             i = tile_id  // mont_shape[0]
             j = mont_shape[0] - tile_id % mont_shape[0] - 1
-            bounds = np.array([i * data.shape[2], (j + 1) * data.shape[1], (i + 1) * data.shape[2], j * data.shape[1]]) * pix_size / 10000
+            bounds = np.array([i * data.shape[2], (j + 1) * data.shape[1], (i + 1) * data.shape[2], j * data.shape[1]]) * pix_size / 1000
             if not dpg.does_item_exist("inf_borderplot_whi" + str(tile_id)):
                 dpg.add_image_series("inf_border_whi", bounds_min=bounds[:2], bounds_max=bounds[2:], parent="inf_x_axis", tag="inf_borderplot_whi" + str(tile_id))            
 
@@ -299,7 +299,7 @@ def inf_outlineExportedTiles():
             tile_id = int(file.split("_")[-2])
             i = tile_id  // mont_shape[0]
             j = mont_shape[0] - tile_id % mont_shape[0] - 1
-            bounds = np.array([i * data.shape[2], (j + 1) * data.shape[1], (i + 1) * data.shape[2], j * data.shape[1]]) * pix_size / 10000
+            bounds = np.array([i * data.shape[2], (j + 1) * data.shape[1], (i + 1) * data.shape[2], j * data.shape[1]]) * pix_size / 1000
             if not dpg.does_item_exist("inf_borderplot_whi" + str(tile_id)):
                 dpg.add_image_series("inf_border_whi", bounds_min=bounds[:2], bounds_max=bounds[2:], parent="inf_x_axis", tag="inf_borderplot_whi" + str(tile_id))
     """
@@ -331,7 +331,7 @@ def inf_reorderMap():
     for i in range(mont_shape[1]):
         for j in range(mont_shape[0]):
             tile = i * mont_shape[0] + j
-            bounds = np.array([i * data.shape[2], (mont_shape[0] - (j + 1)) * data.shape[1], (i + 1) * data.shape[2], (mont_shape[0] - j) * data.shape[1]]) * pix_size / 10000
+            bounds = np.array([i * data.shape[2], (mont_shape[0] - (j + 1)) * data.shape[1], (i + 1) * data.shape[2], (mont_shape[0] - j) * data.shape[1]]) * pix_size / 1000
 
             if not dpg.does_item_exist("inf_img" + str(tile)): break
             dpg.add_image_series("inf_img" + str(tile), bounds_min=bounds[:2], bounds_max=bounds[2:], parent="inf_x_axis", tag="inf_imgplot" + str(tile))
@@ -353,7 +353,7 @@ def inf_mouse_click_left(mouse_coords, mouse_coords_global):
     #mouse_coords_global = dpg.get_mouse_pos(local=False)    # need global coords, because plot coords give last value at edge of plot when clicking outside of plot
 
     if "data" in globals() and np.all(mouse_coords > 0) and mouse_coords_global[0] > 200:
-        mouse_coords = mouse_coords * 10000 / pix_size
+        mouse_coords = mouse_coords * 1000 / pix_size
 
         x = int(mouse_coords[0] / data.shape[2])
         y = int(mouse_coords[1] / data.shape[1])
@@ -365,7 +365,7 @@ def inf_mouse_click_left(mouse_coords, mouse_coords_global):
 
         dpg.set_value("inf_tileid", "Tile: (" + str(x) + "," + str(y) + ") [" + str(tile_id) + "]")
 
-        bounds = np.array([x * data.shape[2], (y + 1) * data.shape[1], (x + 1) * data.shape[2], y * data.shape[1]]) * pix_size / 10000
+        bounds = np.array([x * data.shape[2], (y + 1) * data.shape[1], (x + 1) * data.shape[2], y * data.shape[1]]) * pix_size / 1000
         if dpg.does_item_exist("inf_borderplot_yel"): dpg.delete_item("inf_borderplot_yel")
         dpg.add_image_series("inf_border_yel", bounds_min=bounds[:2], bounds_max=bounds[2:], parent="inf_x_axis", tag="inf_borderplot_yel")
 
@@ -376,10 +376,10 @@ def inf_mouse_click_left(mouse_coords, mouse_coords_global):
             dpg.add_text("Pixel size:")
             # Make editable only if no images have been exported
             if "pixel_size" in meta_data.keys():
-                dpg.add_text(tag="inf_pixsize", default_value=round(pix_size_model, 2))
-                dpg.add_text(" [Å/px]")
+                dpg.add_text(tag="inf_pixsize", default_value=round(pix_size_model, 3))
+                dpg.add_text(" [nm/px]")
             else:
-                dpg.add_input_float(tag="inf_pixsize", default_value=round(pix_size_model, 2), min_value=pix_size, format="%.2f", step=0, width=50, label="[Å/px]")
+                dpg.add_input_float(tag="inf_pixsize", default_value=round(pix_size_model, 3), min_value=pix_size, format="%.3f", step=0, width=50, label="[nm/px]")
         if dpg.does_item_exist("inf_butexp"): dpg.delete_item("inf_butexp")
         dpg.add_button(label="Export tile", callback=inf_exportAsPng, tag="inf_butexp", parent="inf_left", before="inf_numimg")
 
@@ -409,7 +409,7 @@ def inf_exportAsPng():
     dpg.set_value("inf_expstatus", "Saving...")
     
     # Rescale image to model pixel size
-    pix_size_model = round(float(dpg.get_value("inf_pixsize")), 2)
+    pix_size_model = round(float(dpg.get_value("inf_pixsize")), 3)
     if pix_size != pix_size_model:
         if pix_size_model < pix_size:
             print("WARNING: Upscaling images is not recommended!")
@@ -422,7 +422,7 @@ def inf_exportAsPng():
     print("Image saved: " + file_name)
 
     # Save meta data
-    meta_data.update({"pixel_size": round(pix_size_model, 2), "dimensions": image.size[::-1], "tile_id": tile_id})
+    meta_data.update({"pixel_size": round(pix_size_model, 3), "dimensions": image.size[::-1], "tile_id": tile_id})
     save_path = os.path.splitext(file_name)[0] + ".json"
     with open(save_path, "w+") as f:
         json.dump(meta_data, f, indent=4)
@@ -456,7 +456,7 @@ def inf_importModel(sender, app_data):
     # Read dataset.json and look for pixel size
     check_pix_size, pix_size_input, pix_size_model = inf_checkPixelSize("model_0")
     if not check_pix_size:
-        print("WARNING: Model pixel size is not the same as export pixel size. Please export images at model pixel size (" + str(round(pix_size_model, 2)) + " Å/px).")
+        print("WARNING: Model pixel size is not the same as export pixel size. Please export images at model pixel size (" + str(round(pix_size_model, 3)) + " nm/px).")
 
     # Wait for checkpoint files to exist
     timeout = 0
@@ -545,8 +545,8 @@ def inf_checkPixelSize(model_name):
 
     # Check compatibility
     if pix_size_input is not None and pix_size_model is not None and pix_size_input != pix_size_model:
-        print("Model pixel size: " + str(pix_size_model))
-        print("Input pixel size: " + str(pix_size_input))
+        print("Model pixel size [nm/px]: " + str(pix_size_model))
+        print("Input pixel size [nm/px]: " + str(pix_size_input))
         return False, pix_size_input, pix_size_model
     else:
         return True, pix_size_input, pix_size_model
@@ -578,7 +578,7 @@ def ins_loadMap(sender, app_data):
         dpg.set_item_label("ins_x_axis", "x [µm]")
         dpg.set_item_label("ins_y_axis", "y [µm]")
     else:
-        pix_size_png = 10000
+        pix_size_png = 1000
         dpg.set_item_label("ins_x_axis", "x [px]")
         dpg.set_item_label("ins_y_axis", "y [px]")
 
@@ -599,7 +599,7 @@ def ins_loadMap(sender, app_data):
     if dpg.does_item_exist("ins_imgplot"): dpg.delete_item("ins_imgplot")
     with dpg.texture_registry():
         dpg.add_static_texture(width=dims[0], height=dims[1], default_value=image, tag="ins_img")
-    dpg.add_image_series("ins_img", bounds_min=(0, 0), bounds_max=np.array(dims)*pix_size_png/10000*binning, parent="ins_x_axis", tag="ins_imgplot")
+    dpg.add_image_series("ins_img", bounds_min=(0, 0), bounds_max=np.array(dims) * pix_size_png / 1000 * binning, parent="ins_x_axis", tag="ins_imgplot")
     dpg.fit_axis_data("ins_x_axis")
     dpg.fit_axis_data("ins_y_axis")
 
@@ -651,7 +651,7 @@ def ins_loadMask(sender=None, class_list=[]):
     dpg.delete_item("segplot")
     with dpg.texture_registry():
         dpg.add_static_texture(width=dims[0], height=dims[1], default_value=mask, tag="seg")
-    dpg.add_image_series("seg", bounds_min=(0, 0), bounds_max=np.array(dims)*pix_size_png/10000*binning, parent="ins_x_axis", tag="segplot")
+    dpg.add_image_series("seg", bounds_min=(0, 0), bounds_max=np.array(dims) * pix_size_png / 1000 * binning, parent="ins_x_axis", tag="segplot")
 
 def ins_loadClasses():
     global CLASSES
@@ -829,7 +829,7 @@ def ins_showTargets(load_from_file=False):
             for file in point_files:
                 # Load json data
                 with open(file, "r") as f:
-                    target_areas.append(json.load(f, object_hook=utils.revertArray))
+                    target_areas.append(json.load(f, object_hook=utils.revertTaggedString))
         else:
             return
 
@@ -873,8 +873,8 @@ def ins_showTargets(load_from_file=False):
     for t, target_area in enumerate(target_areas):
         if len(target_area["points"]) == 0: continue
         # Transform coords to plot
-        x_vals = target_area["points"][:, 1] * pix_size_png / 10000
-        y_vals = dims[1] * binning - target_area["points"][:, 0] * pix_size_png / 10000
+        x_vals = target_area["points"][:, 1] * pix_size_png / 1000
+        y_vals = dims[1] * binning - target_area["points"][:, 0] * pix_size_png / 1000
 
         dpg.add_scatter_series(x_vals, y_vals, tag="ins_tgtplot" + str(t), parent="ins_x_axis")
         # Load color if not out of bounds of prepared themes
@@ -885,7 +885,7 @@ def ins_showTargets(load_from_file=False):
             # add draggable point
             dpg.add_drag_point(label="tgt_" + str(p + 1).zfill(3), user_data="pt_" + str(t) + "_" + str(p), tag="ins_tgtdrag" + str(tgt_counter), color=cluster_colors[t % len(cluster_colors)], default_value=(x_vals[p], y_vals[p]), callback=ins_dragPointUpdate, parent="ins_plot")
 
-            scaled_overlay_dims = tgt_overlay_dims * pix_size_png / 10000
+            scaled_overlay_dims = tgt_overlay_dims * pix_size_png / 1000
             bounds_min = (x_vals[p] - scaled_overlay_dims[1] // 2, y_vals[p] - scaled_overlay_dims[0] // 2)
             bounds_max = (x_vals[p] + scaled_overlay_dims[1] // 2, y_vals[p] + scaled_overlay_dims[0] // 2)
             if p == 0:
@@ -917,14 +917,14 @@ def ins_tgtUpdate():
             # Get area and point IDs from user data embedded in drag point
             point_id = np.array(dpg.get_item_user_data(("ins_tgtdrag" + str(i))).split("_")[1:], dtype=int)
             # Transform points to plot points for comparison
-            old_coords = np.array([target_areas[point_id[0]]["points"][point_id[1]][1] * pix_size_png / 10000, dims[1] * binning - target_areas[point_id[0]]["points"][point_id[1]][0] * pix_size_png / 10000])
+            old_coords = np.array([target_areas[point_id[0]]["points"][point_id[1]][1] * pix_size_png / 1000, dims[1] * binning - target_areas[point_id[0]]["points"][point_id[1]][0] * pix_size_png / 1000])
             # Go to next points if coords have not changed
             if np.all(coords == old_coords):
                 continue
             else:
                 # Update coords if they have changed
-                target_areas[point_id[0]]["points"][point_id[1]][1] = coords[0] / pix_size_png * 10000
-                target_areas[point_id[0]]["points"][point_id[1]][0] = (dims[1] * binning - coords[1]) / pix_size_png * 10000
+                target_areas[point_id[0]]["points"][point_id[1]][1] = coords[0] / pix_size_png * 1000
+                target_areas[point_id[0]]["points"][point_id[1]][0] = (dims[1] * binning - coords[1]) / pix_size_png * 1000
                 update = True
         else:
             break
@@ -941,7 +941,7 @@ def ins_exportPoints():
     if len(target_areas) > 0:
         for t, target_area in enumerate(target_areas):
             with open(os.path.join(map_dir, map_name + "_points" + str(t) + ".json"), "w+") as f:
-                json.dump(target_area, f, indent=4, default=utils.convertArray)
+                json.dump(target_area, f, indent=4, default=utils.convertToTaggedString)
     else:
         # Write empty points file to ensure empty targets file is written and map is considered processed
         with open(os.path.join(map_dir, map_name + "_points.json"), "w+") as f:
@@ -955,7 +955,7 @@ def ins_mouse_click_left(mouse_coords, mouse_coords_global):
     # Check if mouse click was in plot range and if Shift is pressed (to not double signal when dragging)
     if (dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)) and "target_areas" in globals() and np.all(mouse_coords > 0) and mouse_coords_global[0] > 200:
         # Transform mouse coords to px coords
-        img_coords = np.array([(dims[1] * binning - mouse_coords[1]) / pix_size_png * 10000, mouse_coords[0] / pix_size_png * 10000])
+        img_coords = np.array([(dims[1] * binning - mouse_coords[1]) / pix_size_png * 1000, mouse_coords[0] / pix_size_png * 1000])
 
         # Get camera dims
         rec_dims = np.array(tgt_params.weight.shape)
@@ -1010,7 +1010,7 @@ def ins_mouse_click_right(mouse_coords, mouse_coords_global):
     # Check if mouse click was in plot range
     if "target_areas" in globals() and np.all(mouse_coords > 0) and mouse_coords_global[0] > 200:
         # Transform mouse coords to px coords
-        img_coords = np.array([(dims[1] * binning - mouse_coords[1]) / pix_size_png * 10000, mouse_coords[0] / pix_size_png * 10000])
+        img_coords = np.array([(dims[1] * binning - mouse_coords[1]) / pix_size_png * 1000, mouse_coords[0] / pix_size_png * 1000])
 
         # Get camera dims
         rec_dims = np.array(tgt_params.weight.shape)
@@ -1276,13 +1276,13 @@ def tra_showInfo():
             dpg.add_text("Input:")
             # Make editable only if pixel size is unknown
             if "tra_pix_size_input" in globals() and tra_pix_size_input is not None:
-                dpg.add_text(tag="tra_pixsize_in", default_value=round(tra_pix_size_input, 2))
-                dpg.add_text(" [Å/px]")
+                dpg.add_text(tag="tra_pixsize_in", default_value=round(tra_pix_size_input, 3))
+                dpg.add_text(" [nm/px]")
             else:
-                dpg.add_input_float(tag="tra_pixsize_in", default_value=-1, format="%.2f", step=0, width=50, label="[Å/px]")
+                dpg.add_input_float(tag="tra_pixsize_in", default_value=-1, format="%.3f", step=0, width=50, label="[nm/px]")
         with dpg.group(tag="tra_pix2", horizontal=True, parent="tra_left", before="tra_4"):
             dpg.add_text("Training:")
-            dpg.add_input_float(tag="tra_pixsize_out", default_value=round(pix_size_model, 2), format="%.2f", step=0, width=50, label="[Å/px]")
+            dpg.add_input_float(tag="tra_pixsize_out", default_value=round(pix_size_model, 3), format="%.3f", step=0, width=50, label="[nm/px]")
         dpg.set_value("tra_4", "\n4. Create training data")
         if dpg.does_item_exist("tra_butsav"): dpg.delete_item("tra_butsav")
         dpg.add_button(label="Save dataset", callback=tra_saveDataset, tag="tra_butsav", parent="tra_left", before="tra_5")
@@ -1367,8 +1367,8 @@ def tra_saveDataset():
             tra_classes[class_name] = 0
 
     # Get pixel sizes
-    pix_size_in = round(float(dpg.get_value("tra_pixsize_in")), 2)
-    pix_size_out = round(float(dpg.get_value("tra_pixsize_out")), 2)
+    pix_size_in = round(float(dpg.get_value("tra_pixsize_in")), 3)
+    pix_size_out = round(float(dpg.get_value("tra_pixsize_out")), 3)
 
     # Save images and segmentations
     for d, data in enumerate(dataset):

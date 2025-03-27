@@ -76,7 +76,7 @@ def main():
     logging.info(f"Cuda available: {is_cuda_device}")
 
     # Load YOLO model
-    WG_model = WGModel()
+    WG_model = WGModel(MAP_DIR)
 
     # Load map
     start_time = time.time()
@@ -99,7 +99,7 @@ def main():
     montage_img.save(MAP_DIR / (montage_file.stem + "_wg.png"))
 
     # Detect lamella
-    bboxes = WG_model.findLamellae(MAP_DIR, montage_file.stem, save_boxes=True, device=device)
+    bboxes = WG_model.findLamellae(montage_file.stem)
 
     # Check and upscale resulting box
     if len(bboxes) > 0:

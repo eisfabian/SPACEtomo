@@ -19,6 +19,8 @@ except ModuleNotFoundError:
 
 import sys
 import time
+import mrcfile
+import numpy as np
 from pathlib import Path
 from SPACEtomo.modules.utils import log
 from SPACEtomo import __version__, version_SerialEM
@@ -44,6 +46,45 @@ def checkVersion():
         else:
             sem.SetPersistentVar("warning_version", "")
 
+def checkImagingStates(states=[], low_dose_expected=[]):
+    """Checks if user provided imaging states are sensible."""
+
+    log(f"Checking imaging states...")
+
+    if len(states) != len(low_dose_expected):
+        log("ERROR: Number of imaging states and low dose requirements do not match!")
+        sem.Exit()
+
+    mag_list = []
+    for s, state in enumerate(states):
+        error, index, low_dose, camera, mag_index, name = sem.ImagingStateProperties(str(state))
+
+        # Check if state exists
+        if error > 0:
+            if error == 1 or error == 3:
+                log(f"ERROR: Imaging state {state} does not exist!")
+            elif error == 2:
+                log(f"ERROR: Imaging state {state} is ambiguous!")
+            else:
+                log(f"ERROR: Imaging state {state} caused unspecified error!")
+            sem.Exit()
+
+        # Check if state meets low dose requirement
+        if low_dose_expected[s] and low_dose < 0:
+            log(f"ERROR: Imaging state {state} is not a low dose state but should be!")
+            sem.Exit()
+        elif not low_dose_expected[s] and low_dose > 0:
+            log(f"ERROR: Imaging state {state} is a low dose state but should not be!")
+            sem.Exit()
+
+        if low_dose < 0: # All states in low dose seem to have mag_index = 0 and should not be compared
+            mag_list.append(mag_index)
+
+    # Check if mags are duplicate
+    if len(mag_list) != len(set(mag_list)):
+        log("ERROR: Imaging states have duplicate magnifications!")
+        sem.Exit()
+
 def getSessionDir():
     """Sets up top level dir for SPACEtomo session."""
 
@@ -52,13 +93,17 @@ def getSessionDir():
         if choice == "Cancel":
             log("ERROR: No session directory was selected. Aborting run!")
             sem.Exit()
-        ses_dir = sem.ReportDirectory()
-        sem.SetPersistentVar("ses_dir", ses_dir)
+        ses_dir = Path(sem.ReportDirectory())
+        sem.SetPersistentVar("ses_dir", str(ses_dir))
     else:
-        ses_dir = sem.GetVariable("ses_dir")
-        sem.SetDirectory(str(ses_dir))
+        ses_dir = Path(sem.GetVariable("ses_dir"))
+        setDirectory(ses_dir)
 
-    return Path(ses_dir)
+    # Check if grid dir was chosen instead
+    if list(ses_dir.glob("*.nav")) or list(ses_dir.glob("SPACE_maps")):
+        confirmationBox("WARNING: It seems like you chose a grid directory instead of a session directory. A new folder for each grid will be created in the chosen directory.")
+
+    return ses_dir
 
 def getGridList(grid_list, automation_level):
     """Checks which grids need to be processed."""
@@ -96,19 +141,11 @@ def getGridList(grid_list, automation_level):
 
     return remaining_grid_list
 
-def prepareEnvironment(session_dir, grid_name, external_dir):
+def prepareEnvironment(cur_dir, external_dir):
     """Sets up dirs and logs."""
 
-    # Save old log before switching dir
-    openNewLog()
-
-    # Set subfolder for grid
-    cur_dir = session_dir / grid_name
-    cur_dir.mkdir(exist_ok=True)
-    sem.SetDirectory(str(cur_dir))
-
-    # Opens log in new dir
-    openNewLog(grid_name, force=True)
+    # Save SerialEM settings
+    sem.SaveSettings()
 
     # Check if external processing directory is valid
     external = False
@@ -132,24 +169,124 @@ def prepareEnvironment(session_dir, grid_name, external_dir):
     while sem.ReportFileNumber() > 0:
         sem.CloseFile()
 
-    return cur_dir, map_dir, external
+    return map_dir, external
+
+def setDirectory(directory: Path):
+    """Sets directory in SerialEM and logs it."""
+
+    directory.mkdir(exist_ok=True)
+    sem.SetDirectory(str(directory))
+    log(f"DEBUG: Directory set to {directory}")
+
+def openOldFile(file_path, max_attempts=5, delay=5):
+    """Allows for multiple attempts to open file to prevent crash when file is being copied during access."""
+
+    attempts = 0
+    while attempts < max_attempts:
+        try:
+            sem.StartTry(1)
+            sem.OpenOldFile(str(file_path))
+            # Break on success
+            break
+        except Exception as e:
+            attempts += 1
+            if attempts == max_attempts:
+                raise e
+            log(f"WARNING: File [{file_path}] could not be opened. Trying again... [{attempts}]")
+            time.sleep(delay)
+        finally:
+            sem.EndTry()
+
+def switchToFile(file_path):
+    """Switches to file in SerialEM."""
+
+    # Search for file number and switch to matching file
+    success = False
+    for f in range(1, int(sem.ReportNumOpenFiles()) + 1):
+        if sem.ReportOpenImageFile(f) == str(file_path):
+            sem.SwitchToFile(f)
+            success = True
+            break
+
+    if not success:
+        log(f"ERROR: File [{file_path}] is not open in SerialEM!")
+
+def closeFile(file_path, save_mdoc=False):
+    """Closes file in SerialEM."""
+
+    if sem.IsImageFileOpen(str(file_path)):
+        switchToFile(file_path)
+    else:
+        log(f"WARNING: File [{file_path}] is already closed!")
+        return
+
+    if save_mdoc:
+        sem.WriteAutodoc()
+    sem.CloseFile()
+
+def getSectionNumber(file_path: Path):
+    """Gets section number from open file or mrc file header."""
+
+    if sem.IsImageFileOpen(str(file_path)):
+        switchToFile(file_path)
+        return int(sem.ReportFileZsize())
+    
+    elif file_path.exists():
+        with mrcfile.open(file_path) as mrc:
+            return int(mrc.header["nz"])
+        
+    else:
+        log(f"ERROR: Could not determine section number! File might not exist.")
+        return 0
+    
+def addMdocData(file_path, key, value):
+    """Adds key-value pair to mdoc file."""
+
+    if isinstance(value, (list, tuple, np.ndarray)):
+        value = " ".join(str(v) for v in value)
+
+    switchToFile(file_path)
+    sem.AddToAutodoc(key, str(value))
 
 def openNewLog(name=None, force=False):
     if not force:
         if name:
-            sem.SaveLogOpenNew(name)
+            sem.SaveLogOpenNew(str(name))
         else:
             sem.SaveLogOpenNew()
     else:
         sem.CloseLogOpenNew(1)
         if name:
-            sem.SaveLog(1, name)
+            sem.SaveLog(1, str(name))
     
     # Start new log with version numbers
     if name:
         log(f"SPACEtomo Version {__version__}")
         sem.ProgramTimeStamps()
         log(f"DEBUG: Python {sys.version}")
+
+def checkWarnings():
+    # Warnings
+    # Focus area offset
+    if int(sem.ReportLowDose()[0]) and int(sem.ReportAxisPosition("F")[0]) != 0 and sem.IsVariableDefined("warningFocusArea") == 0:
+        confirmationBox("WARNING: Position of Focus area is not 0! Please set it to 0 to autofocus on the tracking target!")
+        sem.SetPersistentVar("warningFocusArea", "")
+
+    # Tilt axis offset
+    tiltAxisOffset = sem.ReportTiltAxisOffset()[0]
+    if float(tiltAxisOffset) == 0 and sem.IsVariableDefined("warningTAOffset") == 0:
+        confirmationBox("WARNING: No tilt axis offset was set! Please run the PACEtomo_measureOffset script to determine appropiate tilt axis offset.")
+        sem.SetPersistentVar("warningTAOffset", "")
+
+    # Coma vs image shift calibrations
+    try:
+        sem.StartTry(1)
+        sem.ReportComaVsISmatrix()
+    except sem.SEMerror:
+        confirmationBox("WARNING: Coma vs image shift is not calibrated! This might result in excessive beam tilts during acquisition.")
+        log(f"NOTE: Continuing without coma vs image shift calibration...")
+    finally:
+        sem.EndTry()
 
 def setupAcquisition(spacetomo_script_id, postaction_script_id, pacetomo_script_id):
     num_acq, *_ = sem.ReportNumNavAcquire()
@@ -169,11 +306,21 @@ def confirmationBox(text):
     """Opens a popup box for user confirmation and script cancel option."""
 
     sem.Pause(text)
+    log(text)
 
 def exitSPACEtomo():
     """Successfully exit session."""
 
     log("##### SPACEtomo run completed! #####")
+    log(time.strftime("%d.%m.%Y %H:%M:%S", time.localtime()))
+    sem.ClearStatusLine(0)
+    sem.ClearPersistentVars()
+    sem.Exit()
+
+def exitPACEtomo():
+    """Successfully exit session."""
+
+    log("##### PACEtomo run completed! #####")
     log(time.strftime("%d.%m.%Y %H:%M:%S", time.localtime()))
     sem.ClearStatusLine(0)
     sem.ClearPersistentVars()

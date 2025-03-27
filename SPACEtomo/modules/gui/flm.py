@@ -18,6 +18,7 @@
 import os
 os.environ["__GLVND_DISALLOW_PATCHING"] = "1"           # helps to minimize Segmentation fault crashes on Linux when deleting textures
 import sys
+import json
 from pathlib import Path
 from skimage import exposure
 from scipy.ndimage import affine_transform
@@ -62,6 +63,7 @@ class FlmWindow:
         # Registration points
         self.em_points = []
         self.lm_points = []
+        self.trans_matrices = {}
 
         # State tracking
         self.active_slider = None
@@ -109,7 +111,7 @@ class FlmWindow:
 
                     with dpg.table_cell(tag="flm_emplot"):
                         dpg.add_text(default_value="EM map", tag="flm_em1", color=gui.COLORS["heading"])
-                        self.em_plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
+                        self.em_plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", no_legend=True, width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
 
                     with dpg.tooltip("flm_emplot", delay=0.5, hide_on_activity=True):
                         dpg.add_text(default_value="Left click to add registration point!", color=gui.COLORS["heading"])
@@ -121,8 +123,11 @@ class FlmWindow:
                             dpg.add_image_button(gui.makeIconRotation(ccw=True), callback=self.rotateMap, user_data=True)
                             dpg.add_image_button(gui.makeIconFlip(), callback=self.flipMap, user_data=False)
                             dpg.add_image_button(gui.makeIconFlip(horizontal=True), callback=self.flipMap, user_data=True)
+                            dpg.add_image_button(gui.makeIconSave(), callback=self.saveLM, tag="flm_icon_save")
+                            with dpg.tooltip("flm_icon_save"):
+                                dpg.add_text(default_value="Save LM maps to SPACE_maps folder.")
                         dpg.bind_item_theme("flm_btn_rotflip", "small_btn_theme")
-                        self.lm_plot.makePlot(x_axis_label="x [px]", y_axis_label="y [px]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
+                        self.lm_plot.makePlot(x_axis_label="x [px]", y_axis_label="y [px]", no_legend=True, width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
 
                     with dpg.tooltip("flm_lmplot", delay=0.5, hide_on_activity=True):
                         dpg.add_text(default_value="Left click to add registration point!", color=gui.COLORS["heading"])
@@ -141,11 +146,17 @@ class FlmWindow:
     def loadLM(self, sender, app_data, user_data):
         """Loads LM map from file and plots it."""
 
+        # Check if EM map is loaded
+        if not self.loaded_map:
+            gui.showInfoBox("ERROR", "Please load an EM map first!")
+            log(f"ERROR: Please load an EM map first!")
+            return
+
         selected_files = sorted([file for file in app_data["selections"].values()])
         file_path = Path(selected_files[0])
 
         # Load map file
-        new_map = MMap(file_path, pix_size=10000, status=self.status)
+        new_map = MMap(file_path, pix_size=1000, status=self.status)
         if np.all(new_map.img == 0):
             log(f"ERROR: No map loaded.")
             return
@@ -173,7 +184,7 @@ class FlmWindow:
 
         # Get texture and dimensions
         texture = new_map.getTexture()#mod=use_mod)
-        dims_plot = np.flip(np.array(new_map.img.shape[:2]) * new_map.pix_size / 10000)
+        dims_plot = np.flip(np.array(new_map.img.shape[:2]) * new_map.pix_size / 1000)
 
         # Load black background
         if not self.lm_plot.getOverlaysByKeyword("background"):
@@ -197,6 +208,32 @@ class FlmWindow:
 
         # Update channel table
         self.makeChannelTable()
+
+    def saveLM(self, sender, app_data, user_data):
+        """Saves LM map in MAP_DIR."""
+
+        if not self.lm_maps:
+            return
+
+        # Get map to save
+        for l, lm_map in enumerate(self.lm_maps):
+
+            # Only save active channels
+            if not dpg.get_value(f"flm_chkbox_{l}"):
+                continue
+
+            # Save map
+            file_path = self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_channel_{l + 1}.png"
+            Image.fromarray(np.uint8(lm_map.img_bin[:, :, :3])).save(file_path)
+
+        log(f"NOTE: Saved LM maps in {self.loaded_map.file.parent}.")
+
+        # Save transformation matrices if available
+        if self.trans_matrices:
+            transformation_file_path = self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_channel_transformation.json"
+            with open(transformation_file_path, "w") as f:
+                json.dump(self.trans_matrices, f, indent=4, default=utils.convertToTaggedString)
+            log(f"NOTE: Saved transformation matrices as: {transformation_file_path}")
 
     def rotateMap(self, sender, app_data, user_data):
         """Rotates all LM maps by 90 deg and transforms registration points."""
@@ -370,7 +407,7 @@ class FlmWindow:
         texture = self.lm_maps[map_id].getTexture(mod=True)
 
         # Update background in case dims have changed
-        dims_plot = np.flip(np.array(self.lm_maps[map_id].img_mod.shape[:2]) * self.lm_maps[map_id].pix_size / 10000)
+        dims_plot = np.flip(np.array(self.lm_maps[map_id].img_mod.shape[:2]) * self.lm_maps[map_id].pix_size / 1000)
         self.lm_plot.updateOverlay(utils.findIndex(self.lm_plot.overlays, "label", "background"), texture=None, bounds=[[0, dims_plot[0]], [0, dims_plot[1]]])
 
         # Just replace texture to keep plotting order the same
@@ -396,6 +433,13 @@ class FlmWindow:
         # Toggle show in main plot
         if m := utils.findIndex(self.main_plot.img, "label", f"lm_map_{user_data}"):
             dpg.configure_item(self.main_plot.img[m]["plot"], show=app_data)
+
+    def toggleOverlay(self):
+        """Toggle show of all channels."""
+
+        for m in range(len(self.lm_maps)):
+            self.changeShow(None, not dpg.get_value(f"flm_chkbox_{m}"), m)
+            dpg.set_value(f"flm_chkbox_{m}", not dpg.get_value(f"flm_chkbox_{m}"))
 
     def changeThresholding(self, map_id, thresholds=None, get=False):
         """Updates thresholding of channel map."""
@@ -538,7 +582,7 @@ class FlmWindow:
         # Update scatter indicator for drag point (drag points are always plotted behind images)
         coords = dpg.get_value(sender)[:2]
         plot.clearSeries(["temp_drag"])
-        plot.addSeries([coords[0]], [coords[1]], label="temp_drag", theme="drag_scatter_theme")
+        plot.addSeries([coords[0]], [coords[1]], label="temp_drag", theme="geo_scatter_theme")
 
     def checkDragPoint(self, drag_point):
         """Compares drag points to registration point coords and updates registration points if they have changed."""
@@ -590,10 +634,10 @@ class FlmWindow:
             self.em_plot.clearAnnotations()
 
             points = np.array([self.loaded_map.px2microns(point) for point in self.em_points])
-            self.em_plot.addSeries(points[:, 0], points[:, 1], label=f"em_scatter", theme=f"scatter_theme4")
+            self.em_plot.addSeries(points[:, 0], points[:, 1], label=f"em_scatter", theme=f"geo_scatter_theme")
             for p, point in enumerate(points):
-                self.em_plot.addDragPoint(point[0], point[1], label=f"Point {p + 1}", callback=self.dragPointUpdate, user_data=f"em_{p}", color=gui.THEME_COLORS[4])
-                self.em_plot.addAnnotation(f"{p + 1}", point[0], point[1], color=gui.THEME_COLORS[4])
+                self.em_plot.addDragPoint(point[0], point[1], label=f"Point {p + 1}", callback=self.dragPointUpdate, user_data=f"em_{p}", color=gui.COLORS["geo"])
+                self.em_plot.addAnnotation(f"{p + 1}", point[0], point[1], color=gui.COLORS["geo"])
 
         # LM scatter plot
         if len(self.lm_points) > 0:
@@ -603,10 +647,10 @@ class FlmWindow:
             self.lm_plot.clearAnnotations()
 
             points = np.array([self.lm_maps[0].px2microns(point) for point in self.lm_points])
-            self.lm_plot.addSeries(points[:, 0], points[:, 1], label=f"lm_scatter", theme=f"scatter_theme4")
+            self.lm_plot.addSeries(points[:, 0], points[:, 1], label=f"lm_scatter", theme=f"geo_scatter_theme")
             for p, point in enumerate(points):
-                self.lm_plot.addDragPoint(point[0], point[1], label=f"Point {p + 1}", callback=self.dragPointUpdate, user_data=f"lm_{p}", color=gui.THEME_COLORS[4])
-                self.lm_plot.addAnnotation(f"{p + 1}", point[0], point[1], color=gui.THEME_COLORS[4])
+                self.lm_plot.addDragPoint(point[0], point[1], label=f"Point {p + 1}", callback=self.dragPointUpdate, user_data=f"lm_{p}", color=gui.COLORS["geo"])
+                self.lm_plot.addAnnotation(f"{p + 1}", point[0], point[1], color=gui.COLORS["geo"])
 
     def clearPoints(self):
         """Clears all registration points."""
@@ -649,6 +693,21 @@ class FlmWindow:
         """Calculates affine transformation matrix that maps lm_points to em_points."""
         
         if len(self.em_points) < 3 or len(self.lm_points) < 3:
+
+            # Use already existing transformation matrices if available
+            if self.trans_matrices:
+                return self.trans_matrices["total"], self.trans_matrices["translation"], self.trans_matrices["scaling"], self.trans_matrices["rotation"] 
+
+            # Check if transformation file exists
+            transformation_file_path = self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_channel_transformation.json"
+            if transformation_file_path.exists():
+                with open(transformation_file_path, "r") as f:
+                    matrices = json.load(f, object_hook=utils.revertTaggedString)
+                log(f"WARNING: Using transformation matrices from file: {transformation_file_path}")
+                return matrices["total"], matrices["translation"], matrices["scaling"], matrices["rotation"]
+
+            # If not, ask user to select at least 3 points
+            gui.showInfoBox("ERROR", "Select at least 3 registration points before applying the transform!")
             log(f"ERROR: Select at least 3 registration points before applying the transform!")
             return np.identity(3), np.identity(3), np.identity(3), np.identity(3)
 
@@ -720,6 +779,9 @@ class FlmWindow:
             total_matrix, trans_matrix, scale_matrix, rot_matrix = self.calcTransMatrix()
             if (np.all(total_matrix == np.identity(3))):
                 return
+            
+            # Save for possible future use
+            self.trans_matrices = {"total": total_matrix, "translation": trans_matrix, "scaling": scale_matrix, "rotation": rot_matrix}
 
             # Only rotate and translate and crop, leave scaling to plot to save memory (double output_shape to make sure nothing is cut off during rotation)
             if np.ndim(img) == 3:
@@ -741,7 +803,7 @@ class FlmWindow:
             self.loaded_map.img_mod = new_img
             texture = self.loaded_map.getTexture(mod=True)
 
-            dims_plot = np.flip(np.array(self.loaded_map.img.shape[:2]) * self.loaded_map.pix_size / 10000)
+            dims_plot = np.flip(np.array(self.loaded_map.img.shape[:2]) * self.loaded_map.pix_size / 1000)
 
             # Add to EM plot
             self.em_plot.addImg(texture, [[0, dims_plot[0]], [0, dims_plot[1]]], self.loaded_map.binning, label=f"lm_map_{m}")
