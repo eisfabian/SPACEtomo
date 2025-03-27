@@ -535,7 +535,7 @@ If you could not resolve the issue yourself or you encountered a bug, please rep
 
 ## Recent Changes
 
-### Version 1.3 (xx.03.2025)
+### Version 1.3 (27.03.2025)
 - GUI improvements and bug fixes.
 - Reacquisition options of MM maps (e.g. after ice contamination removal).
 - Target selection GUI on manually collected montages. (Can be used instead of PACEtomo_selectTargets script.)
