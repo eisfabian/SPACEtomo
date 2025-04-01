@@ -97,11 +97,17 @@ def getSessionDir():
         sem.SetPersistentVar("ses_dir", str(ses_dir))
     else:
         ses_dir = Path(sem.GetVariable("ses_dir"))
+        if not ses_dir.exists():
+            log(f"ERROR: Session directory [{ses_dir}] does not exist! Please run SPACEtomo again to choose a new directory.")
+            sem.CLearPersistentVars()
+            sem.Exit()
         setDirectory(ses_dir)
 
     # Check if grid dir was chosen instead
     if list(ses_dir.glob("*.nav")) or list(ses_dir.glob("SPACE_maps")):
+        sem.ClearPersistentVars() # Clear persistent vars to allow for new directory selection in case user does not continue
         confirmationBox("WARNING: It seems like you chose a grid directory instead of a session directory. A new folder for each grid will be created in the chosen directory.")
+        sem.SetPersistentVar("ses_dir", str(ses_dir)) # Save grid dir as session dir in case user continues
 
     return ses_dir
 
