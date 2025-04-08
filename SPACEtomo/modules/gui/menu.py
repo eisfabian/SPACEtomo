@@ -5,8 +5,9 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/08
-# Revision:     v1.2
-# Last Change:  2024/12/23: added tooltip support
+# Revision:     v1.3
+# Last Change:  2025/04/08: added support for image buttons, synced tooltip show
+#               2024/12/23: added tooltip support
 #               2024/10/02: added slider support
 #               2024/08/08: separated from gui.py 
 # ===================================================================
@@ -16,8 +17,8 @@ import dearpygui.dearpygui as dpg
 class Menu:
     """Class to structure menu tables and control locking and unlocking of rows."""
 
-    def __init__(self) -> None:
-        self.makeTable()
+    def __init__(self, outline=True) -> None:
+        self.makeTable(outline=outline)
         self.rows = {}                  # visible rows
         self.rows_locked = {}           # conditionally hidden rows
         self.rows_adv = {}              # advanced rows
@@ -29,10 +30,10 @@ class Menu:
 
         self.show_advanced = False      # toggle advance elements/rows
 
-    def makeTable(self):
+    def makeTable(self, outline=True):
         """Creates base table."""
 
-        with dpg.table(header_row=False, width=-1, borders_outerH=True) as self.table:
+        with dpg.table(header_row=False, width=-1, borders_outerH=outline) as self.table:
             dpg.add_table_column()
 
     def newRow(self, tag, horizontal=False, separator=False, locked=True, advanced=False):
@@ -130,7 +131,30 @@ class Menu:
             dpg.bind_item_theme(element, theme)
 
         if tooltip:
-            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addImageButton(self, tag, texture, callback=None, user_data=None, tooltip="", theme=None, show=True, advanced=False):
+        """Adds a image button to the current row."""
+
+        # Add button to group
+        element = dpg.add_image_button(texture, callback=callback, user_data=user_data, show=show and not advanced, parent=self.last_group)
+        # Add to element list
+        if advanced:
+            self.elements_adv[tag] = element
+        else:
+            self.elements[tag] = element
+
+        if theme and dpg.does_item_exist(theme):
+            dpg.bind_item_theme(element, theme)
+
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
                 dpg.add_text(tooltip)
             # Add to element list
             if advanced:
@@ -272,3 +296,31 @@ class Menu:
                     dpg.hide_item(self.separators[tag])
             for element in self.elements_adv.values():
                 dpg.hide_item(element)
+
+    def hideElements(self, tags=[]):
+        """Hides elements in list."""
+
+        for tag in tags:
+            if tag in self.elements.keys():
+                dpg.hide_item(self.elements[tag])
+            elif tag in self.elements_adv.keys():
+                dpg.hide_item(self.elements_adv[tag])
+            
+            if tag + "_tooltip" in self.elements.keys():
+                dpg.hide_item(self.elements[tag + "_tooltip"])
+            elif tag + "_tooltip" in self.elements_adv.keys():
+                dpg.hide_item(self.elements_adv[tag + "_tooltip"])
+
+    def showElements(self, tags=[]):
+        """Shows elements in list."""
+        
+        for tag in tags:
+            if tag in self.elements.keys():
+                dpg.show_item(self.elements[tag])
+            elif tag in self.elements_adv.keys():
+                dpg.show_item(self.elements_adv[tag])
+            
+            if tag + "_tooltip" in self.elements.keys():
+                dpg.show_item(self.elements[tag + "_tooltip"])
+            elif tag + "_tooltip" in self.elements_adv.keys():
+                dpg.show_item(self.elements_adv[tag + "_tooltip"])

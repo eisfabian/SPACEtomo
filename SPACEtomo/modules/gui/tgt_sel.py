@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2025/03/14: added dense pattern, added threaded preloading of next map
+# Last Change:  2025/04/08: fixed tooltip combination of hidden buttons
+#               2025/03/14: added dense pattern, added threaded preloading of next map
 #               2025/03/10: added polygon mode to exclude suggestions, added add suggestions button
 #               2025/02/20: added plot legend
 #               2025/02/10: added outline for reacquire settings
@@ -90,7 +91,7 @@ class TargetGUI:
             if self.targets.addTarget(img_coords, new_area=dpg.is_key_down(dpg.mvKey_T)):
                 self.showTargets()
                 self.showTargetAreaButtons()
-                dpg.show_item(self.menu_right.all_elements["butsave"])
+                self.menu_right.showElements(["butsave"])
 
         # Right mouse button functions
         elif dpg.is_mouse_button_down(dpg.mvMouseButton_Right) or (dpg.is_mouse_button_down(dpg.mvMouseButton_Left) and dpg.is_key_down(dpg.mvKey_E)):
@@ -106,7 +107,7 @@ class TargetGUI:
         elif dpg.is_mouse_button_down(dpg.mvMouseButton_Middle) or (dpg.is_mouse_button_down(dpg.mvMouseButton_Left) and dpg.is_key_down(dpg.mvKey_G)):
             if self.targets.addGeoPoint(img_coords):
                 self.showTargets()
-                dpg.show_item(self.menu_right.all_elements["butsave"])
+                self.menu_right.showElements(["butsave"])
 
         elif dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
 
@@ -142,7 +143,7 @@ class TargetGUI:
                             self.suggestDensePattern()
                         self.showTargets()
                         self.showTargetAreaButtons()
-                        dpg.show_item(self.menu_right.all_elements["butsave"])
+                        self.menu_right.showElements(["butsave"])
 
                     # Add polygon if in polygon mode
                     else:
@@ -209,7 +210,7 @@ class TargetGUI:
             self.drag_point = None
             self.drag_start = None
             self.showTargets()
-            dpg.show_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.showElements(["butsave"])
 
     def updateMapList(self, list_only=False):
         """Checks for new maps in folder."""
@@ -436,15 +437,12 @@ class TargetGUI:
         # Show toggle target suggestions button
         if "grid_vectors" in self.loaded_map.meta_data.keys():
             self.toggleHolePattern(force_off=True)
-            dpg.show_item("butholes")
+            self.menu_icon.showElements(["butholes"])
         self.toggleDensePattern(force_off=True)
-        dpg.show_item("butdense")
-        dpg.bind_item_theme("butpolygon", None)
-        dpg.show_item("butpolygon")
+        dpg.bind_item_theme(self.menu_icon.all_elements["butpolygon"], None)
+        self.menu_icon.showElements(["butdense", "butpolygon"])
         if self.inspected:
-            dpg.hide_item("butholes")
-            dpg.hide_item("butdense")
-            dpg.hide_item("butpolygon")
+            self.menu_icon.hideElements(["butholes", "butdense", "butpolygon"])
 
         self.menu_left.show()
 
@@ -506,7 +504,7 @@ class TargetGUI:
             self.menu_right.show()
 
             # Reset save button
-            dpg.hide_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.hideElements(["butsave"])
 
     def loadOverlay(self, *args, cats=[]):
         """Plots overlay of selected categories."""
@@ -862,9 +860,9 @@ class TargetGUI:
             if closest_point_id[1] > 0:
                 # Only show option when target is not a tracking target
                 dpg.configure_item(self.menu_tgt.all_elements["btn_trk"], user_data=closest_point_id)
-                dpg.show_item(self.menu_tgt.all_elements["btn_trk"])
+                self.menu_tgt.showElements(["btn_trk"])
             else:
-                dpg.hide_item(self.menu_tgt.all_elements["btn_trk"])
+                self.menu_tgt.hideElements(["btn_trk"])
 
             # Configure area selection
             if len(self.targets.areas) > 1:
@@ -876,9 +874,9 @@ class TargetGUI:
             # Configure optimization button (only show when segmentation was loaded)
             if self.segmentation.valid:
                 dpg.configure_item(self.menu_tgt.all_elements["btn_opt"], user_data=closest_point_id)
-                dpg.show_item(self.menu_tgt.all_elements["btn_opt"])
+                self.menu_tgt.showElements(["btn_opt"])
             else:
-                dpg.hide_item(self.menu_tgt.all_elements["btn_opt"])
+                self.menu_tgt.hideElements(["btn_opt"])
 
             # Unlock rows
             self.menu_tgt.unlockRows(["info", "buttons"])
@@ -936,17 +934,15 @@ class TargetGUI:
 
         # Split areas button
         if len(self.targets) > 1:
-            dpg.show_item(self.menu_right.all_elements["butsplit"])
+            self.menu_right.showElements(["butsplit"])
         else:
-            dpg.hide_item(self.menu_right.all_elements["butsplit"])
+            self.menu_right.hideElements(["butsplit"])
 
         # Redistribute targets and merge buttons
         if len(self.targets.areas) > 1:
-            dpg.show_item(self.menu_right.all_elements["butdist"])
-            dpg.show_item(self.menu_right.all_elements["butmerge"])
+            self.menu_right.showElements(["butdist", "butmerge"])
         else:
-            dpg.hide_item(self.menu_right.all_elements["butdist"])
-            dpg.hide_item(self.menu_right.all_elements["butmerge"])
+            self.menu_right.hideElements(["butdist", "butmerge"])
 
     def openClassSelection(self, sender, app_data, user_data):
         """Opens selection window for classes."""
@@ -1018,7 +1014,7 @@ class TargetGUI:
 
         # Update GUI
         self.menu_left.show()
-        dpg.hide_item(self.menu_right.all_elements["butsave"])     # Only activate save button when targets were changed
+        self.menu_right.hideElements(["butsave"])   # Only activate save button when targets were changed
         if not self.inspected:
             self.menu_right.show()
         self.status.update()
@@ -1029,7 +1025,7 @@ class TargetGUI:
         # Show detected grid pattern
         if self.loaded_map and "grid_vectors" in self.loaded_map.meta_data.keys():
             if not self.targets:
-                dpg.bind_item_theme("butholes", None)
+                dpg.bind_item_theme(self.menu_icon.all_elements["butholes"], None)
                 self.hole_mode = False
                 gui.showInfoBox("ERROR", "Please select one target to center grid on!")
                 return
@@ -1100,12 +1096,12 @@ class TargetGUI:
                 self.targets.suggestions = []
                 self.menu_right.lockRows(["suggestions"])
             self.hole_mode = False
-            dpg.bind_item_theme("butholes", None)
+            dpg.bind_item_theme(self.menu_icon.all_elements["butholes"], None)
         else:
             log(f"DEBUG: Toggling hole mode ON.")
             if self.dense_mode:
                 self.toggleDensePattern()
-            dpg.bind_item_theme("butholes", "active_btn_theme")
+            dpg.bind_item_theme(self.menu_icon.all_elements["butholes"], "active_btn_theme")
             self.hole_mode = True
             self.suggestHolePattern()
 
@@ -1201,12 +1197,12 @@ class TargetGUI:
                 self.targets.suggestions = []
                 self.menu_right.lockRows(["suggestions"])
             self.dense_mode = False
-            dpg.bind_item_theme("butdense", None)
+            dpg.bind_item_theme(self.menu_icon.all_elements["butdense"], None)
         else:
             log(f"DEBUG: Toggling dense mode ON.")
             if self.hole_mode:
                 self.toggleHolePattern()
-            dpg.bind_item_theme("butdense", "active_btn_theme")
+            dpg.bind_item_theme(self.menu_icon.all_elements["butdense"], "active_btn_theme")
             self.dense_mode = True
             self.suggestDensePattern()
 
@@ -1221,7 +1217,7 @@ class TargetGUI:
         self.toggleDensePattern(force_off=True)
         self.showTargets()
         self.showTargetAreaButtons()
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
 
     def togglePolygonMode(self):
         """Toggles polygon mode for target selection."""
@@ -1231,7 +1227,7 @@ class TargetGUI:
         
         # Toggle mode
         self.polygon_mode = not self.polygon_mode
-        dpg.bind_item_theme("butpolygon", "active_btn_theme" if self.polygon_mode else None)
+        dpg.bind_item_theme(self.menu_icon.all_elements["butpolygon"], "active_btn_theme" if self.polygon_mode else None)
 
         # If turning off
         if not self.polygon_mode:
@@ -1306,7 +1302,7 @@ class TargetGUI:
         self.showTargets()
         self.showTargetAreaButtons()
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
         
     def makeTrackDialogue(self, sender, app_data, user_data):
         """Creates dialogue for make tracking target."""
@@ -1351,7 +1347,7 @@ class TargetGUI:
         self.showTargets()
         self.showTargetAreaButtons()
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
 
     def optimizeTarget(self, sender, app_data, user_data):
         """Translates target according to loaded target mask."""
@@ -1368,7 +1364,7 @@ class TargetGUI:
             dpg.hide_item("win_tgt")
             self.showTargets()
             # Enable save button
-            dpg.show_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.showElements(["butsave"])
 
     def removeTarget(self, sender, app_data, user_data):
         """Deletes a single target."""
@@ -1386,7 +1382,7 @@ class TargetGUI:
                 self.clearTargets()
             self.showTargetAreaButtons()
             # Enable save button
-            dpg.show_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.showElements(["butsave"])
 
     def removeGeoPoint(self, img_coords):
         """Deletes closest geo point from all target areas. (Assumes geo_points are kept synced for all target areas.)"""
@@ -1400,7 +1396,7 @@ class TargetGUI:
             # Remove geo point from all areas
             self.targets.removeGeoPoint(closest_point_id)
             self.showTargets()
-            dpg.show_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.showElements(["butsave"])
 
     def removePolygon(self, sender=None, app_data=None, user_data=None, img_coords=None):
         """Deletes closest polygon from plot."""
@@ -1444,7 +1440,7 @@ class TargetGUI:
         self.showTargets()
         self.showTargetAreaButtons()
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
 
     def splitAreas(self):
         """Splits targets into target areas using k-means clustering."""
@@ -1456,7 +1452,7 @@ class TargetGUI:
         self.showTargets()
         self.showTargetAreaButtons()
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
 
     def splitTargets(self):
         """Splits all targets among current tracking targets."""
@@ -1466,7 +1462,7 @@ class TargetGUI:
         self.showTargets()
         self.showTargetAreaButtons()
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])        
+        self.menu_right.showElements(["butsave"])      
 
     def clearTargets(self, *args, plot_only=False):
         """Deletes all targets (or just clear from plot.)"""
@@ -1488,7 +1484,7 @@ class TargetGUI:
             self.toggleDensePattern(force_off=True)
 
             # Enable save button
-            dpg.show_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.showElements(["butsave"])
 
     def clearGeoPoints(self):
         """Deletes all geo points."""
@@ -1502,7 +1498,7 @@ class TargetGUI:
         log("NOTE: Deleted geo points!")
 
         # Enable save button
-        dpg.show_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.showElements(["butsave"])
 
     def saveTargets(self):
         """Exports targets as json file."""
@@ -1511,7 +1507,7 @@ class TargetGUI:
         settings = self.getAcquisitionSettings()
 
         self.targets.exportTargets(settings)
-        dpg.hide_item(self.menu_right.all_elements["butsave"])
+        self.menu_right.hideElements(["butsave"])
         log("NOTE: Saved targets!")
 
         # Also check FLM and save
@@ -1801,7 +1797,7 @@ class TargetGUI:
             self.saveTargets()
         else:
             # Discard by hiding save button
-            dpg.hide_item(self.menu_right.all_elements["butsave"])
+            self.menu_right.hideElements(["butsave"])
 
         # Close info box
         if dpg.does_item_exist(user_data[0]):
@@ -2115,28 +2111,15 @@ class TargetGUI:
                         self.status = gui.StatusLine()
 
                     with dpg.table_cell(tag="tblplot"):
-                        with dpg.group(horizontal=True):
-                            dpg.add_text(default_value="MM map", color=gui.COLORS["heading"])
 
-                            dpg.add_image_button(gui.makeIconResetZoom(), callback=self.plot.resetZoom, tag="butresetzoom")
-                            with dpg.tooltip("butresetzoom", delay=0.5):
-                                dpg.add_text("Reset zoom")
-
-                            dpg.add_image_button(gui.makeIconSnapshot(), callback=self.savePlot, tag="butsnapshot")
-                            with dpg.tooltip("butsnapshot", delay=0.5):
-                                dpg.add_text("Save snapshot")
-
-                            dpg.add_image_button(gui.makeIconHoles(), callback=self.toggleHolePattern, tag="butholes", show=False)
-                            with dpg.tooltip("butholes", delay=0.5):
-                                dpg.add_text("Show hole pattern")
-
-                            dpg.add_image_button(gui.makeIconDense(), callback=self.toggleDensePattern, tag="butdense", show=False)
-                            with dpg.tooltip("butdense", delay=0.5):
-                                dpg.add_text("Show dense pattern")
-
-                            dpg.add_image_button(gui.makeIconPolygon(), callback=self.togglePolygonMode, tag="butpolygon", show=False)
-                            with dpg.tooltip("butpolygon", delay=0.5):
-                                dpg.add_text("Draw polygon")
+                        self.menu_icon = Menu(outline=False)
+                        self.menu_icon.newRow(tag="icon", horizontal=True, separator=False, locked=False)
+                        self.menu_icon.addText(tag="icon_heading", value="MM map", color=gui.COLORS["heading"])
+                        self.menu_icon.addImageButton("butresetzoom", gui.makeIconResetZoom(), callback=self.plot.resetZoom, tooltip="Reset zoom")
+                        self.menu_icon.addImageButton("butsnapshot", gui.makeIconSnapshot(), callback=self.savePlot, tooltip="Save snapshot")
+                        self.menu_icon.addImageButton("butholes", gui.makeIconHoles(), callback=self.toggleHolePattern, tooltip="Show hole pattern", show=False)
+                        self.menu_icon.addImageButton("butdense", gui.makeIconDense(), callback=self.toggleDensePattern, tooltip="Show dense pattern", show=False)
+                        self.menu_icon.addImageButton("butpolygon", gui.makeIconPolygon(), callback=self.togglePolygonMode, tooltip="Draw polygon", show=False)
 
                         self.plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
 
