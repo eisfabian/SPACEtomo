@@ -506,7 +506,8 @@ SPACEtomo on the SerialEM computer will keep checking the map dir for new coordi
 
 ## Video Tutorials
 
-[![SPACE-tomo: Target Selection GUI](https://github.com/eisfabian/SPACEtomo/raw/main/img/SPACE_tut_thumbnail_tgt.png)](https://www.youtube.com/watch?v=I5yvi0sUGG4)
+[![SPACEtomo: Target Selection GUI](https://github.com/eisfabian/SPACEtomo/raw/main/img/SPACE_tut_thumbnail_tgt.png)](https://www.youtube.com/watch?v=I5yvi0sUGG4)
+[![SPACEtomo: Full run on lamella sample](https://github.com/eisfabian/SPACEtomo/raw/main/img/SPACE_tut_thumbnail_run_lam.png)](https://www.youtube.com/watch?v=640jxdV8bfA)
 
 More coming as soon as possible!
 
