@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
 # Revision:     v1.3
-# Last Change:  2025/01/30: added rectangular search threshold, small fixes
+# Last Change:  2025/04/08: added tracking centering upon splitting areas
+#               2025/01/30: added rectangular search threshold, small fixes
 #               2024/09/02: fixed area name not considered when preparing targets
 #               2024/08/19: added virtual map creation, nav preparation, target export
 #               2024/08/16: added PACEArea child of TargetArea
@@ -268,6 +269,11 @@ class Targets:
                 new_areas.append(TargetArea())
             new_areas[area_id].addPoint(self.areas[0].points[point_id], score=self.areas[0].scores[point_id])
 
+        # Center tracking target
+        for area_id, area in enumerate(new_areas):
+            if len(area.points) > 0:
+                area.centerTrack(centroids[area_id])
+
         # Add geo point to all target areas
         for geo_point in self.areas[0].geo_points:
             for area in new_areas:
@@ -468,6 +474,15 @@ class TargetArea:
 
         # Update center
         self.center = self.points[0]
+
+    def centerTrack(self, centroid):
+        """Chooses tracking target closest to centroid."""
+
+        if len(self.points) > 0:
+            # Get closest point
+            closest_id = np.argmin(np.linalg.norm(self.points - centroid, axis=1))
+            # Move tracking target to closest point
+            self.makeTrack(closest_id)
 
     def getPointInfo(self, id):
         """Gets information about point by id."""
