@@ -57,7 +57,12 @@ def checkImagingStates(states=[], low_dose_expected=[]):
 
     mag_list = []
     for s, state in enumerate(states):
-        error, index, low_dose, camera, mag_index, name = sem.ImagingStateProperties(str(state))
+        state_props = sem.ImagingStateProperties(str(state))
+
+        if isinstance(state_props, (list, tuple)):
+            error, index, low_dose, camera, mag_index, name = state_props
+        else:
+            error = state_props
 
         # Check if state exists
         if error > 0:
