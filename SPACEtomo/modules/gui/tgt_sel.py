@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2025/04/08: fixed tooltip combination of hidden buttons
+# Last Change:  2025/04/12: added InfoBoxManager to stack popups
+#               2025/04/08: fixed tooltip combination of hidden buttons
 #               2025/03/14: added dense pattern, added threaded preloading of next map
 #               2025/03/10: added polygon mode to exclude suggestions, added add suggestions button
 #               2025/02/20: added plot legend
@@ -56,6 +57,7 @@ from SPACEtomo.modules.gui import gui
 from SPACEtomo.modules.gui.thmb import MapWindow
 from SPACEtomo.modules.gui.flm import FlmWindow
 from SPACEtomo.modules.gui.menu import Menu
+from SPACEtomo.modules.gui.info import InfoBoxManager, InfoBox, StatusLine, saveSnapshot
 from SPACEtomo.modules.gui.plot import Plot, PlotBox, PlotPolygon
 from SPACEtomo.modules.gui.map import MMap, Segmentation
 from SPACEtomo.modules.tgt import Targets
@@ -253,9 +255,12 @@ class TargetGUI:
     def checkPointFiles(self):
         """Checks if new point file of loaded map was created."""
 
-        # Don't check if no map is loaded or targets are already loaded (or selected)
-        if not self.map_name or (self.targets and len(self.targets) > 0) or self.checked_point_files:
+        # Don't check if no map is loaded or targets are already loaded (or selected) or if there is an active status (e.g. map is loading)
+        if not self.map_name or (self.targets and len(self.targets) > 0) or self.checked_point_files or self.status.status:
+            #log(f"DEBUG: NOT checking point files!")
             return
+        
+        log(f"DEBUG: Decided to check point files!")
         
         # Get all point files for MM map
         point_files = sorted(self.cur_dir.glob(self.map_name + "_points*.json"))
@@ -284,7 +289,7 @@ class TargetGUI:
 
         # Open box unless already called by box
         if not user_data:
-            gui.showInfoBox("New target coordinates", "Target coordinates for the currently loaded map were found. Do you want to load them?", callback=self.confirmLoadPointFiles, options=["Load", "Cancel"], options_data=[True, False])
+            InfoBoxManager.push(InfoBox("New target coordinates", "Target coordinates for the currently loaded map were found. Do you want to load them?", callback=self.confirmLoadPointFiles, options=["Load", "Cancel"], options_data=[True, False], loading=False))
             self.checked_point_files = True
             return
 
@@ -305,7 +310,7 @@ class TargetGUI:
             # Close map window if open
             self.map_window.hide()
             dpg.split_frame() # Close window before opening warning in next frame
-            gui.showInfoBox("WARNING", "There are unsaved changes to your targets. Please save or discard your targets before loading a new map!", callback=self.saveAndContinue, options=["Save", "Discard"], options_data=[True, False])
+            InfoBoxManager.push(InfoBox("WARNING", "There are unsaved changes to your targets. Please save or discard your targets before loading a new map!", callback=self.saveAndContinue, options=["Save", "Discard"], options_data=[True, False], loading=False))
             return
         
         # Check for valid user_data
@@ -324,7 +329,10 @@ class TargetGUI:
         dpg.set_value(self.menu_left.all_elements["map"], self.map_name)
 
         # Close map window if open
-        self.map_window.hide()
+        if dpg.is_item_visible(self.map_window.map_window):
+            self.map_window.hide()
+            # Split a frame to allow closing the map window if it was selected from there
+            dpg.split_frame()
 
         # Update map list on every button click
         if self.updateMapList():
@@ -373,8 +381,14 @@ class TargetGUI:
             self.preloaded_data = None
 
         else:
-            # Discard preloaded map to allow preloading next map
-            self.preloaded_data = None
+            # Discard wrong preloaded map to allow preloading next map
+            if self.preloaded_data:
+                # Delete preloaded textures
+                for tex in self.preloaded_data["textures"]:
+                    if dpg.does_item_exist(tex):
+                        dpg.delete_item(tex)
+                        dpg.split_frame(delay=10) # helps to reduce Segmentation fault crashes
+                self.preloaded_data = None
 
             # Load map file
             self.loaded_map = MMap(file_path, pix_size=self.model.pix_size, status=self.status)
@@ -450,11 +464,6 @@ class TargetGUI:
 
     def preloadMap(self):
         """Preloads second map quietly."""
-
-        # Check if map was already preloaded
-        #if self.preloaded_data:
-        #    log(f"DEBUG: Map {self.preloaded_data['map'].file.stem} is already preloaded.")
-        #    return
 
         # Get next map
         if not self.map_name:
@@ -634,7 +643,7 @@ class TargetGUI:
             json.dump({"center_offset": center_offset_nm, "padding": padding, "restitch": restitch}, f, indent=4, default=utils.convertToTaggedString)
 
         log(f"DEBUG: Reacquire map {self.map_name} on next SPACEtomo run!")
-        gui.showInfoBox("INFO", "This map will be reacquired on the next SPACEtomo run. If you want to reacquire now, please stop the SPACEtomo run and start it again.")
+        InfoBoxManager.push(InfoBox("INFO", "This map will be reacquired on the next SPACEtomo run. If you want to reacquire now, please stop the SPACEtomo run and start it again.", loading=False))
 
         self.clearTargets()
         self.markInspected(None, None, None, keep_map=True)
@@ -654,7 +663,7 @@ class TargetGUI:
                           
         else:
             log(f"ERROR: Please select a tracking target to use as center of the reacquired map.")
-            gui.showInfoBox("ERROR", "Please select a tracking target to use as center of the reacquired map!")
+            InfoBoxManager.push(InfoBox("ERROR", "Please select a tracking target to use as center of the reacquired map!", loading=False))
 
     def applyClassSelection(self, sender, app_data, user_data):
         """Applies checked classes to target list."""
@@ -1027,7 +1036,7 @@ class TargetGUI:
             if not self.targets:
                 dpg.bind_item_theme(self.menu_icon.all_elements["butholes"], None)
                 self.hole_mode = False
-                gui.showInfoBox("ERROR", "Please select one target to center grid on!")
+                InfoBoxManager.push(InfoBox("ERROR", "Please select one target to center grid on!", loading=False))
                 return
             
             # Reset existing suggestions
@@ -1309,15 +1318,16 @@ class TargetGUI:
 
         dpg.hide_item("win_tgt")
         dpg.split_frame()
-        gui.showInfoBox("Make tracking target", "Do you want to make this target the tracking target of the current area or create a new acquisition area?", callback=self.makeTrack, options=["Current area", "New area", "Cancel"], options_data=[[user_data, "old"], [user_data, "new"], False])
+        InfoBoxManager.push(InfoBox("Make tracking target", "Do you want to make this target the tracking target of the current area or create a new acquisition area?", loading=False, callback=self.makeTrack, options=["Current area", "New area", "Cancel"], options_data=[[user_data, "old"], [user_data, "new"], False]))
 
     def makeTrack(self, sender, app_data, user_data):
         """Makes selected target a tracking target of current or new area."""
 
         # Check for info box input
         if user_data and dpg.does_item_exist(user_data[0]):
-            dpg.delete_item(user_data[0])
-            dpg.split_frame()
+            #dpg.delete_item(user_data[0])
+            #dpg.split_frame()
+            InfoBoxManager.pop()
         
         if not user_data[1]:
             return
@@ -1412,12 +1422,13 @@ class TargetGUI:
             if inside_polygons: 
                 _, p = sorted(inside_polygons, key=lambda x: x[0])[0]
                 self.plot.boxes[p].updateColor(gui.COLORS["error"])
-                gui.showInfoBox("Delete polygon", "Do you want to delete this polygon?", callback=self.removePolygon, options=["Delete", "Cancel"], options_data=[[True, p], [False, p]])
+                InfoBoxManager.push(InfoBox("Delete polygon", "Do you want to delete this polygon?", loading=False, callback=self.removePolygon, options=["Delete", "Cancel"], options_data=[[True, p], [False, p]]))
             return
             
         if user_data and dpg.does_item_exist(user_data[0]):
-            dpg.delete_item(user_data[0])
-            dpg.split_frame()
+            #dpg.delete_item(user_data[0])
+            #dpg.split_frame()
+            InfoBoxManager.pop()
 
             # Get info from user_data
             remove, p = user_data[1]
@@ -1519,12 +1530,13 @@ class TargetGUI:
         # Check for geo_points
         if self.targets and len(self.targets.areas[0].points) and not len(self.targets.areas[0].geo_points) and not user_data:
             log(f"WARNING: No geo points were selected!")
-            gui.showInfoBox("WARNING", "No geo points were selected to measure the sample geometry. If you go ahead, the manual input for pretilt and rotation will be used!", callback=self.markInspected, options=["Continue", "Cancel"], options_data=[True, False])
+            InfoBoxManager.push(InfoBox("WARNING", "No geo points were selected to measure the sample geometry. If you go ahead, the manual input for pretilt and rotation will be used!", loading=False, callback=self.markInspected, options=["Continue", "Cancel"], options_data=[True, False]))
             return
         # Close geo_points confirmation info box
         if user_data and dpg.does_item_exist(user_data[0]):
-            dpg.delete_item(user_data[0])
-            dpg.split_frame()
+            #dpg.delete_item(user_data[0])
+            #dpg.split_frame()
+            InfoBoxManager.pop()
             # Cancel
             if not user_data[1]:
                 return
@@ -1573,7 +1585,7 @@ class TargetGUI:
             log("NOTE: All MM maps were inspected!")
             if self.auto_close:
                 # Confirm closing
-                gui.showInfoBox("FINISHED?", "All available MM maps were inspected. Are MM maps still being acquired? If not, you can close this GUI.", callback=self.closeAllInspected, options=["Wait", "Close"], options_data=[False, True])
+                InfoBoxManager.push(InfoBox("FINISHED?", "All available MM maps were inspected. Are MM maps still being acquired? If not, you can close this GUI.", loading=False, callback=self.closeAllInspected, options=["Wait", "Close"], options_data=[False, True]))
                 return True
         else:
             return False
@@ -1587,8 +1599,9 @@ class TargetGUI:
         else:
             # Close confirmation info box
             if dpg.does_item_exist(user_data[0]):
-                dpg.delete_item(user_data[0])
-                dpg.split_frame()        
+                #dpg.delete_item(user_data[0])
+                #dpg.split_frame()
+                InfoBoxManager.pop()
 
     def getAcquisitionSettings(self):
         """Gets acquisition settings from input fields."""
@@ -1630,14 +1643,14 @@ class TargetGUI:
                 log("ERROR: No microscope parameter file found. Please launch the GUI in a SPACE_maps folder!")
                 # Change exit callback to avoid askForSave method
                 dpg.set_exit_callback(dpg.stop_dearpygui)
-                gui.showInfoBox("ERROR", "No microscope parameter file found.\nPlease launch the GUI in a SPACE_maps folder!", callback=dpg.stop_dearpygui)
+                InfoBoxManager.push(InfoBox("ERROR", "No microscope parameter file found.\nPlease launch the GUI in a SPACE_maps folder!", loading=False, callback=dpg.stop_dearpygui))
             self.checked_run_conditions = True
             return
 
         # Create popup if no maps have been found yet
         if not self.map_list:
             if not self.checked_map_files:
-                gui.showInfoBox("NOTE", "No MM map segmentations are available yet.\n\nReload after a few minutes to check for MM map segmentations.", callback=self.manualMapListReload, options=["Reload", "Close"], options_data=[True, False])
+                InfoBoxManager.push(InfoBox("NOTE", "No MM map segmentations are available yet.\n\nReload after a few minutes to check for MM map segmentations.", loading=False, callback=self.manualMapListReload, options=["Reload", "Close"], options_data=[True, False]))
             self.checked_map_files = True
             return
 
@@ -1654,8 +1667,9 @@ class TargetGUI:
 
         # Close info box
         if dpg.does_item_exist(user_data[0]):
-            dpg.delete_item(user_data[0])
-            dpg.split_frame()
+            #dpg.delete_item(user_data[0])
+            #dpg.split_frame()
+            InfoBoxManager.pop()
 
         if user_data[1]:
             self.updateMapList()
@@ -1751,7 +1765,7 @@ class TargetGUI:
         # Check if map was opened
         if not self.map_name:
             log(f"ERROR: Please load a map before saving a snapshot!")
-            gui.showInfoBox("WARNING", "Please load a map before saving a snapshot!")
+            InfoBoxManager.push(InfoBox("WARNING", "Please load a map before saving a snapshot!"))
             return
         
         # Get name for snapshot
@@ -1759,14 +1773,14 @@ class TargetGUI:
         while (snapshot_file_path := self.cur_dir / f"{self.map_name}_snapshot{counter}.png").exists():
             counter += 1
         
-        gui.saveSnapshot(self.plot.plot, snapshot_file_path)
+        saveSnapshot(self.plot.plot, snapshot_file_path)
 
     def askForSave(self):
         """Opens popup if there are unsaved changes."""
 
         # Check for unsaved changes
         if dpg.is_item_shown(self.menu_right.all_elements["butsave"]):
-            gui.showInfoBox("WARNING", "There are unsaved changes to your targets!", callback=self.saveAndClose, options=["Save", "Discard"], options_data=[True, False])
+            InfoBoxManager.push(InfoBox("WARNING", "There are unsaved changes to your targets!", loading=False, callback=self.saveAndClose, options=["Save", "Discard"], options_data=[True, False]))
         else:
 
             # Check inspected status and give warning when some but not all targets have been inspected
@@ -1774,7 +1788,7 @@ class TargetGUI:
             for map_name in self.map_list:
                 inspected.append((self.cur_dir / (map_name + "_inspected.txt")).exists())
             if any(inspected) and not all(inspected):
-                gui.showInfoBox("WARNING", "Not all targets have been marked as inspected. Are you sure you want to exit?", callback=self.confirmClose, options=["Exit", "Cancel"], options_data=[True, False])
+                InfoBoxManager.push(InfoBox("WARNING", "Not all targets have been marked as inspected. Are you sure you want to exit?", loading=False, callback=self.confirmClose, options=["Exit", "Cancel"], options_data=[True, False]))
             else:
                 dpg.stop_dearpygui()
 
@@ -1801,8 +1815,9 @@ class TargetGUI:
 
         # Close info box
         if dpg.does_item_exist(user_data[0]):
-            dpg.delete_item(user_data[0])
-            dpg.split_frame()
+            #dpg.delete_item(user_data[0])
+            #dpg.split_frame()
+            InfoBoxManager.pop()
 
     def confirmClose(self, sender, app_data, user_data):
         """Closes GUI or keeps it open."""
@@ -1814,8 +1829,9 @@ class TargetGUI:
         else:
             # Close info box
             if dpg.does_item_exist(user_data[0]):
-                dpg.delete_item(user_data[0])
-                dpg.split_frame()
+                #dpg.delete_item(user_data[0])
+                #dpg.split_frame()
+                InfoBoxManager.pop()
 
     def toggleAdvanced(self):
         """Shows advanced menu options."""
@@ -1830,6 +1846,7 @@ class TargetGUI:
             dpg.delete_item("trigger_help")
 
         # Show help
+        dpg.split_frame()
         self.showHelp()
 
     def openWGMap(self):
@@ -1861,7 +1878,7 @@ class TargetGUI:
         message += "T     Toggle CLEM overlay\n"
         message += "Space Show available maps\n"
 
-        gui.showInfoBox("Help", message)
+        InfoBoxManager.push(InfoBox("Help", message, loading=False))
 
 #################################################################################
 
@@ -1871,6 +1888,9 @@ class TargetGUI:
 
         # Automatically close GUI after map was inspected
         self.auto_close = auto_close
+
+        # Keep list of popup blocking windows
+        self.blocking_windows = []
 
         # Make logo
         self.logo_dims = gui.makeLogo()
@@ -1890,7 +1910,7 @@ class TargetGUI:
         self.drag_start = None # Keep track of drag start position
 
         self.executor = concurrent.futures.ThreadPoolExecutor()
-        self.preloaded_data = None  # Map data to be preloaded
+        self.preloaded_data = None      # Map data to be preloaded
 
         # Modes
         self.polygon_mode = False   # Mode to draw polygons
@@ -2108,7 +2128,7 @@ class TargetGUI:
                         self.menu_left.addButton(tag="clsmask", label="Create overlay", callback=self.loadOverlay, tooltip="Create overlay of selected classes. (This can take a few seconds.)")
                         self.menu_left.addButton(tag="clsapply", label="Apply", callback=self.applyClassSelection, user_data=[self.menu_left, None], tooltip="Apply selected classes to target list.")
 
-                        self.status = gui.StatusLine()
+                        self.status = StatusLine()
 
                     with dpg.table_cell(tag="tblplot"):
 
@@ -2221,12 +2241,13 @@ class TargetGUI:
         # Make window for map thumbnails
         self.map_window = MapWindow(self.cur_dir, self.map_name, self.map_list, self.map_list_tgtnum, self.selectMap, self.thumbnail_size, self.executor)
         self.map_window.makeMapTable()
+        self.blocking_windows.append(self.map_window.map_window) # Add to blocking windows to keep track of open popups
 
         # LM window
         self.lm_window = FlmWindow(self.plot)
 
         # Make window for target editing menu
-        with dpg.window(label="Target", tag="win_tgt", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False):
+        with dpg.window(label="Target", tag="win_tgt", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False) as win_tgt:
             self.menu_tgt = Menu()
             self.menu_tgt.newRow(tag="heading", separator=False, locked=False)
             self.menu_tgt.addText(tag="heading_txt", value="Target", color=gui.COLORS["heading"])
@@ -2240,9 +2261,10 @@ class TargetGUI:
             self.menu_tgt.addButton(tag="btn_del", label="Delete", callback=self.removeTarget)
             self.menu_tgt.addButton(tag="btn_trk", label="Make tracking target", callback=self.makeTrackDialogue)
             self.menu_tgt.addButton(tag="btn_opt", label="Optimize position", callback=self.optimizeTarget)
+        self.blocking_windows.append(win_tgt) # Add to blocking windows to keep track of open popups
 
         # Make window for class list selection
-        with dpg.window(label="Selection", tag="win_sel", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False):
+        with dpg.window(label="Selection", tag="win_sel", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False) as win_sel:
             self.menu_sel = Menu()
             self.menu_sel.newRow(tag="heading", separator=False, locked=False)
             self.menu_sel.addText(tag="heading", value="Classes", color=gui.COLORS["heading"])
@@ -2251,6 +2273,9 @@ class TargetGUI:
                     if k % 3 == 0:
                         self.menu_sel.newRow(tag=str(k), horizontal=True, separator=False, locked=False)
                     self.menu_sel.addCheckbox(tag=key, label=key, value=False, callback=self.applyClassSelection)
+        self.blocking_windows.append(win_sel) # Add to blocking windows to keep track of open popups
+
+        InfoBoxManager.blocking_windows = self.blocking_windows
 
         dpg.bind_theme("global_theme")
 
@@ -2266,20 +2291,26 @@ class TargetGUI:
             # Recheck folder for segmentation every minute
             now = time.time()
             if now > next_update:
-                next_update = now + 10
+                next_update = now + 1
+
+                # Check if info box needs to be shown
+                InfoBoxManager.unblock()
+
                 # Check if new maps (or thumbnails) were finished
                 if self.updateMapList() or (any([future.done() for future in self.map_window.futures])):
                     self.map_window.update(self.map_name, self.map_list, self.map_list_tgtnum)
+
                 # Check if new target selection was finished
                 self.checkPointFiles()
+
                 # Preload map in background
                 if self.preload_maps:
                     # If preloading is in progress, check if it is done
                     if isinstance(self.preloaded_data, concurrent.futures.Future):
                         if self.preloaded_data.done():
                             self.preloaded_data = self.preloaded_data.result()
-                    # If no preloading is done or in progress, start new one
-                    elif self.preloaded_data is None:
+                    # If no preloading is done or in progress (and no status is set, e.g. map is loading), start new one
+                    elif self.preloaded_data is None and not self.status.status:
                         self.preloaded_data = self.executor.submit(self.preloadMap)
 
             dpg.render_dearpygui_frame()

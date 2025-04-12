@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
 # Revision:     v1.3
-# Last Change:  2025/03/13: renamed lamella to ROI
+# Last Change:  2025/04/12: added InfoBoxManager to stack popups, fixed tooltips of hidden buttons showing up
+#               2025/03/13: renamed lamella to ROI
 #               2025/03/06: added grid boxes, added class legend
 #               2025/01/30: fixed lamella list and find maps button not shown when inspected
 #               2024/12/20: added box drag cursors
@@ -31,6 +32,7 @@
 import os
 import sys
 os.environ["__GLVND_DISALLOW_PATCHING"] = "1"           # helps to minimize Segmentation fault crashes on Linux when deleting textures
+import time
 from pathlib import Path
 try:
     import dearpygui.dearpygui as dpg
@@ -45,6 +47,7 @@ import SPACEtomo.config as config
 from SPACEtomo.modules.mod_wg import WGModel, Boxes
 from SPACEtomo.modules.gui import gui
 from SPACEtomo.modules.gui.menu import Menu
+from SPACEtomo.modules.gui.info import InfoBoxManager, InfoBox, StatusLine, saveSnapshot
 from SPACEtomo.modules.gui.plot import Plot, PlotBox
 from SPACEtomo.modules.gui.map import MMap
 from SPACEtomo.modules import utils
@@ -273,7 +276,7 @@ class GridGUI:
         #if not file_path.endswith((".png", ".mrc", ".map")):
         if not file_path.suffix.lower() in [".png", ".mrc", ".map"]:
             log("ERROR: Can only read .png and .mrc files!")
-            gui.showInfoBox("ERROR", "Can only read .png and .mrc files!")
+            InfoBoxManager.push(InfoBox("ERROR", "Can only read .png and .mrc files!"))
             return
         
         # Update GUI
@@ -597,8 +600,8 @@ class GridGUI:
             self.scaleOutlines()
 
             # Show toggle grid button
-            dpg.bind_item_theme("butgrid", "active_btn_theme")
-            dpg.show_item("butgrid")
+            dpg.bind_item_theme(self.menu_icon.all_elements["butgrid"], "active_btn_theme")
+            self.menu_icon.showElements(["butgrid"])
 
     def toggleTiles(self):
         """Toggles showing tile bounds on map."""
@@ -614,7 +617,7 @@ class GridGUI:
         """Toggles showing grid pattern on map."""
 
         if hasattr(self.plot, "boxes_grid") and self.plot.boxes_grid:
-            dpg.bind_item_theme("butgrid", None)
+            dpg.bind_item_theme(self.menu_icon.all_elements["butgrid"], None)
             for box in self.plot.boxes_grid:
                 box.remove()
             self.plot.boxes_grid = []
@@ -902,7 +905,7 @@ class GridGUI:
         # Check if map has correct pixel size (within 10% of model pixel size)
         if abs(self.loaded_map.pix_size - config.WG_model_pix_size) > 0.01 * config.WG_model_pix_size:
             log("WARNING: Loaded map does not have a suitable pixel size for lamella detection model. Rescaling...")
-            gui.showInfoBox("WARNING", "The loaded map does not have a suitable pixel size for the lamella detection model.\nThe map will be rescaled to " + str(config.WG_model_pix_size) + " nm/px.", self.callLamellaDetection, ["OK", "Cancel"])
+            InfoBoxManager.push(InfoBox("WARNING", "The loaded map does not have a suitable pixel size for the lamella detection model.\nThe map will be rescaled to " + str(config.WG_model_pix_size) + " nm/px.", self.callLamellaDetection, ["OK", "Cancel"]))
             return
 
         # Reset boxes
@@ -949,7 +952,7 @@ class GridGUI:
             # Check if map has correct pixel size (within 10% of model pixel size)
             if abs(self.loaded_map.pix_size - config.WG_model_pix_size) > 0.01 * config.WG_model_pix_size:
                 log("WARNING: Loaded map does not have a suitable pixel size for lamella detection model. Rescaling?")
-                gui.showInfoBox("WARNING", "The loaded map does not have a suitable pixel size for the lamella detection model.\nThe map should be rescaled to " + str(config.WG_model_pix_size) + " nm/px.", self.splitTilesForExport, ["Rescale", "Export anyways", "Cancel"])
+                InfoBoxManager.push(InfoBox("WARNING", "The loaded map does not have a suitable pixel size for the lamella detection model.\nThe map should be rescaled to " + str(config.WG_model_pix_size) + " nm/px.", self.splitTilesForExport, ["Rescale", "Export anyways", "Cancel"]))
                 return
             
         # Check checkboxes
@@ -1013,7 +1016,7 @@ class GridGUI:
         dpg.set_value(self.menu.all_elements["inp_pixsize"], self.loaded_map.pix_size)
 
         log(f"Successfully exported {total_tile_count} tiles containing {total_roi_count} ROIs to {self.loaded_map.file.parent / 'YOLO_dataset'}")
-        gui.showInfoBox("INFO", "Successfully exported " + str(total_tile_count) + " tiles containing " + str(total_roi_count) + " ROIs!")
+        InfoBoxManager.push(InfoBox("INFO", "Successfully exported " + str(total_tile_count) + " tiles containing " + str(total_roi_count) + " ROIs!"))
 
     @staticmethod
     def overlapBoxes(bounds1, bounds2):
@@ -1071,7 +1074,7 @@ class GridGUI:
         else:
             message += "None"
         log(message)
-        gui.showInfoBox("Dataset composition", message)
+        InfoBoxManager.push(InfoBox("Dataset composition", message))
 
     def markInspected(self):
         """Creates inspected.txt file and locks down editing."""
@@ -1100,7 +1103,7 @@ class GridGUI:
         # Check if map was opened
         if not self.loaded_map:
             log(f"ERROR: Please load a map before saving a snapshot!")
-            gui.showInfoBox("WARNING", "Please load a map before saving a snapshot!")
+            InfoBoxManager.push(InfoBox("WARNING", "Please load a map before saving a snapshot!"))
             return
         
         # Get name for snapshot
@@ -1108,13 +1111,13 @@ class GridGUI:
         while (snapshot_file_path := self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_snapshot{counter}.png").exists():
             counter += 1
         
-        gui.saveSnapshot(self.plot.plot, snapshot_file_path)
+        saveSnapshot(self.plot.plot, snapshot_file_path)
 
     def askForSave(self):
         """Opens popup if there are unsaved changes."""
 
         if dpg.is_item_shown(self.menu.all_elements["btn_save"]):
-            gui.showInfoBox("WARNING", "There are unsaved changes to your Regions of Interest!", callback=self.saveAndClose, options=["Save", "Discard"], options_data=[True, False])
+            InfoBoxManager.push(InfoBox("WARNING", "There are unsaved changes to your Regions of Interest!", callback=self.saveAndClose, options=["Save", "Discard"], options_data=[True, False]))
         else:
             dpg.stop_dearpygui()
 
@@ -1147,7 +1150,7 @@ class GridGUI:
         message += "Down  Show next ROI on plot\n"
         message += "Up    Show previous ROI on plot\n"
 
-        gui.showInfoBox("Help", message)
+        InfoBoxManager.push(InfoBox("Help", message))
 
 ### END FUNCTIONS ###
 
@@ -1161,6 +1164,9 @@ class GridGUI:
 
         # Automatically close GUI after map was inspected
         self.auto_close = auto_close
+
+        # Keep list of popup blocking windows
+        self.blocking_windows = []
 
         # Make logo
         self.logo_dims = gui.makeLogo()
@@ -1304,20 +1310,17 @@ class GridGUI:
                         self.menu.addInput(tag="inp_quantile", label="quantile", value=0.01)
                         self.menu.addButton(tag="btn_rescalemrc", label="Rescale mrc", callback=lambda: self.loadMap(None, {"selections": {self.loaded_map.file.name: self.loaded_map.file}}, None, quantile=dpg.get_value(self.menu.all_elements["inp_quantile"])))
 
-                        self.status = gui.StatusLine()
+                        self.status = StatusLine()
 
                     with dpg.table_cell(tag="tblplot"):
-                        with dpg.group(horizontal=True):
-                            dpg.add_text(default_value="WG map", color=gui.COLORS["heading"])
-                            dpg.add_image_button(gui.makeIconResetZoom(), callback=self.plot.resetZoom, tag="butresetzoom")
-                            with dpg.tooltip("butresetzoom", delay=0.5):
-                                dpg.add_text("Reset zoom")
-                            dpg.add_image_button(gui.makeIconSnapshot(), callback=self.savePlot, tag="butsnapshot")
-                            with dpg.tooltip("butsnapshot", delay=0.5):
-                                dpg.add_text("Save snapshot")
-                            dpg.add_image_button(gui.makeIconGrid(), callback=self.toggleGrid, tag="butgrid", show=False)
-                            with dpg.tooltip("butgrid", delay=0.5):
-                                dpg.add_text("Show detected grid pattern")
+
+                        self.menu_icon = Menu(outline=False)
+                        self.menu_icon.newRow(tag="icon", horizontal=True, separator=False, locked=False)
+                        self.menu_icon.addText(tag="icon_heading", value="MM map", color=gui.COLORS["heading"])
+                        self.menu_icon.addImageButton("butresetzoom", gui.makeIconResetZoom(), callback=self.plot.resetZoom, tooltip="Reset zoom")
+                        self.menu_icon.addImageButton("butsnapshot", gui.makeIconSnapshot(), callback=self.savePlot, tooltip="Save snapshot")
+                        self.menu_icon.addImageButton("butgrid", gui.makeIconGrid(), callback=self.toggleGrid, tooltip="Show detected grid pattern", show=False)
+
                         self.plot.makePlot(x_axis_label="x [µm]", y_axis_label="y [µm]", width=-1, height=-1, equal_aspects=True, no_menus=True, crosshairs=True, pan_button=dpg.mvMouseButton_Right, no_box_select=True)
                         dpg.bind_item_handler_registry(self.plot.plot, "plot_hover_handler")
             # Create tooltips
@@ -1342,7 +1345,7 @@ class GridGUI:
             dpg.add_text(default_value="v" + __version__, pos=(10 + self.logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() + 5 - self.logo_dims[0] / 2), tag="version_text")
 
         # Create ROI menu
-        with dpg.window(label="Region of Interest", tag="ROI", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False):
+        with dpg.window(label="Region of Interest", tag="ROI", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False) as win_roi:
             dpg.add_text(default_value="Region of Interest", color=gui.COLORS["heading"], tag="roi_label")
             dpg.add_radio_button(config.WG_model_categories, callback=self.catROI, user_data=None, tag="roi_cat")
             dpg.add_button(label="Delete", callback=self.deleteROI, user_data=None, tag="roi_btndel")
@@ -1356,6 +1359,7 @@ class GridGUI:
                     dpg.add_text("Move ROI up in list order.")
                 with dpg.tooltip("roi_btndown", delay=0.5):
                     dpg.add_text("Move ROI down in list order.")
+        self.blocking_windows.append(win_roi) # Add to blocking windows to keep track of open popups
 
         dpg.bind_theme("global_theme")
 
@@ -1364,4 +1368,16 @@ class GridGUI:
         dpg.set_primary_window("GUI", True)
         dpg.show_viewport()
 
-        dpg.start_dearpygui()           # Can be replaced with render loop
+        # Render loop
+        next_update = time.time() + 1
+        while dpg.is_dearpygui_running():
+
+            # Recheck folder for segmentation every minute
+            now = time.time()
+            if now > next_update:
+                next_update = now + 1
+
+                # Check if info box needs to be shown
+                InfoBoxManager.unblock()
+
+            dpg.render_dearpygui_frame()

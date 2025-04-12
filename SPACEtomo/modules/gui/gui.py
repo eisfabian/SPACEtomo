@@ -24,15 +24,12 @@
 #               2024/04/26
 # ===================================================================
 
-import time
 import numpy as np
 from pathlib import Path
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 from skimage import transform, draw
 import dearpygui.dearpygui as dpg
-
-from SPACEtomo.modules.utils import log
 
 ### GUI CONFIG ###
 
@@ -762,124 +759,3 @@ def fileNav(tag, callback, dir=False, extensions=[]):
         dpg.add_file_extension(".*") 
         for ext in extensions:
             dpg.add_file_extension(ext, color=COLORS["heading"])
-
-
-class StatusLine:
-    def __init__(self, item=None) -> None:
-        self.status = ""
-        if item is None:
-            self.item = dpg.add_text(default_value=self.status)
-        else:
-            self.item = item
-        dpg.hide_item(self.item)
-        dpg.configure_item(self.item, color=COLORS["subtle"])
-        self.processing_box = None
-
-    def update(self, status="", color=None, box=False):
-        self.status = status
-
-        if dpg.does_item_exist(self.processing_box):
-            dpg.delete_item(self.processing_box)
-            dpg.split_frame()
-
-        dpg.set_value(self.item, self.status)
-        if color is not None:
-            dpg.configure_item(self.item, color=color)
-        else:
-            dpg.configure_item(self.item, color=(255, 255, 255, 255))
-        if self.status == "":
-            dpg.hide_item(self.item)
-        else:
-            dpg.show_item(self.item)
-            if box:
-                self.processing_box = showInfoBox("PROCESSING", self.status, options=None, loading=True)
-
-def showInfoBox(title, message, callback=None, options=[], options_data=[], loading=False):
-    """Shows info or confirmation pop up box."""
-
-    # Set color
-    if title == "ERROR":
-        color = COLORS["error"]
-    else:
-        color = (255, 255, 255, 255)
-
-    viewport_size = np.array((dpg.get_viewport_client_width(), dpg.get_viewport_client_height()))
-
-    # Create popup window
-    with dpg.window(label=title, modal=True, no_close=True) as infobox:
-        dpg.add_text(message, color=color)
-        if options is not None:
-            if callback is None:
-                callback = lambda: dpg.delete_item(infobox)
-            dpg.add_text()
-            with dpg.group(horizontal=True) as infobtns:
-                if len(options) > 0:
-                    for o, option in enumerate(options):
-                        if o < len(options_data):
-                            user_data = options_data[o]
-                        else:
-                            user_data = o
-                        dpg.add_button(label=option, user_data=[infobox, user_data], callback=callback)
-                else:
-                    dpg.add_button(label="OK", callback=callback)
-        elif loading:
-            loading_icon = dpg.add_loading_indicator(circle_count=6)
-
-    # Wait for next frame so size and position can be adjusted
-    dpg.split_frame()
-
-    window_size = np.array((dpg.get_item_width(infobox), dpg.get_item_height(infobox)))
-    dpg.split_frame() # seems to help reducing misplaced windows
-    dpg.set_item_pos(infobox, pos=(viewport_size - window_size) / 2)    # pos needs to be a float from dpg>=2.0
-
-    # Center buttons
-    if options is not None:
-        group_size = np.array(dpg.get_item_rect_size(infobtns))
-        dpg.set_item_pos(infobtns, ((window_size[0] - group_size[0]) / 2, dpg.get_item_pos(infobtns)[1]))    # pos needs to be a float from dpg>=2.0
-
-    # Center loading icon
-    if loading:
-        icon_size = dpg.get_item_rect_size(loading_icon)
-        dpg.set_item_pos(loading_icon, ((window_size[0] - icon_size[0]) / 2, dpg.get_item_pos(loading_icon)[1]))    # pos needs to be a float from dpg>=2.0
-
-    return infobox
-
-def saveSnapshot(element, file_path):
-    """Saves frame buffer to temp file, loads it and crops out element to save as image file."""
-
-    # Save whole frame as temp file (callback to directly obtain frame as array crashes)
-    log(f"DEBUG: Saving temp frame buffer image...")
-    temp_path = file_path.parent / "temp.png"
-    dpg.output_frame_buffer(str(temp_path))
-
-    # Wait until temp file is written
-    max_count = 4
-    counter = 0
-    while not temp_path.exists():
-        log(f"DEBUG: Waiting for temp frame buffer image [{temp_path}]...")
-        time.sleep(0.5)
-        counter += 1
-        if counter >= max_count:
-            log(f"ERROR: Snapshot failed! Saving snapshots might not be supported yet on your OS.")
-            showInfoBox("ERROR", "Snapshot failed! Saving snapshots might not be supported yet on your OS.")
-            return
-
-    # Load temp frame buffer image
-    log(f"DEBUG: Loading temp frame buffer image...")
-    frame = np.array(Image.open(temp_path))
-
-    # Get bounds of element
-    left, top = dpg.get_item_pos(element)
-    width, height = dpg.get_item_rect_size(element)
-
-    # Crop element
-    log(f"DEBUG: Element cropping dimensions: [{top}: {top + height}, {left}: {left + width}]")
-    cropped_frame = frame[top: top + height, left: left + width]
-
-    # Save cropped frame as image
-    Image.fromarray(cropped_frame).save(file_path)
-    log(f"NOTE: Saved snapshot at {file_path}")
-    showInfoBox("NOTE", f"Snapshot was saved to {file_path}")
-
-    # Delete temp frame buffer image
-    temp_path.unlink()

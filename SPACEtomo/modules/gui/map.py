@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/09
 # Revision:     v1.3
-# Last Change:  2025/02/04: added 16bit PNG support
+# Last Change:  2025/04/12: added InfoBoxManager to stack popups
+#               2025/02/04: added 16bit PNG support
 #               2024/11/19: added loadTif
 #               2024/08/09: separated from gui.py 
 # ===================================================================
@@ -25,7 +26,7 @@ import subprocess
 from skimage import exposure, transform
 import dearpygui.dearpygui as dpg
 
-from SPACEtomo.modules.gui.gui import showInfoBox
+from SPACEtomo.modules.gui.info import InfoBoxManager, InfoBox
 from SPACEtomo.modules import utils
 from SPACEtomo.modules.utils import log
 
@@ -103,7 +104,7 @@ class MMap:
                     unique = np.unique(piece_data[:, 2])
                     if len(unique) > 1:
                         log(f"WARNING: File contains {len(unique)} montage maps. Use IMOD's edmont command to split the file!")
-                        showInfoBox("WARNING", f"File contains {len(unique)} montage maps.\nDo you want to run IMOD's edmont to split the file by montage?", splitMontageFile, ["Yes", "No"], [self.file, ""])
+                        InfoBoxManager.push(InfoBox("WARNING", f"File contains {len(unique)} montage maps.\nDo you want to run IMOD's edmont to split the file by montage?", callback=splitMontageFile, options=["Yes", "No"], options_data=[self.file, ""]))
                         self.img = np.zeros((1, 1))
                         return
         else:
@@ -202,7 +203,7 @@ class MMap:
                     if self.status is not None:
                         self.status.update()
                     log(f"WARNING: No IMOD installation found! Cannot access montage tile coordinates. Best guess for montage dimensions is: {self.tile_num[0]}x{self.tile_num[1]}")
-                    showInfoBox("WARNING", f"No IMOD installation found! Cannot access montage tile coordinates.\nBest guess for montage dimensions is: {self.tile_num[0]}x{self.tile_num[1]}\nPlease make sure IMOD is on the PATH to get better results!")
+                    InfoBoxManager.push(InfoBox("WARNING", f"No IMOD installation found! Cannot access montage tile coordinates.\nBest guess for montage dimensions is: {self.tile_num[0]}x{self.tile_num[1]}\nPlease make sure IMOD is on the PATH to get better results!"))
                 else:
                     log(f"WARNING: No piece coordinates found. Best guess for montage dimensions is: {self.tile_num[0]}x{self.tile_num[1]}")
 
@@ -400,7 +401,7 @@ class MMap:
         # Don't rescale if factor is less than 1%
         if abs(rescale_factor - 1) <= 0.01 and self.img.shape[0] > padding[0] and self.img.shape[1] > padding[1]:
             log("ERROR: New pixel size is unchanged. No rescaling was performed.")
-            showInfoBox("ERROR", "New pixel size is unchanged. No rescaling was performed.")
+            InfoBoxManager.push(InfoBox("ERROR", "New pixel size is unchanged. No rescaling was performed."))
             return
         
         if self.status is not None:
@@ -487,7 +488,7 @@ class Segmentation:
             log(f"DEBUG: Segmentation was loaded in {time.time() - start} s. [{self.img.dtype}]")
             self.valid = True
         else:
-            showInfoBox("ERROR", "Can only read segmentations from .png files!")
+            InfoBoxManager.push(InfoBox("ERROR", "Can only read segmentations from .png files!"))
             self.valid = False
             return
         # Check if segmentation contains data (manual_selection creates empty segmentation)
@@ -597,7 +598,7 @@ def splitMontageFile(sender, app_data, user_data):
 
     file = Path(user_data[1])    
     if len(user_data) > 1 and file.exists() and IMOD:
-        processing_box = showInfoBox("PROCESSING", "Splitting mrc file into montages...", options=None)
+        InfoBoxManager.push(InfoBox("PROCESSING", "Splitting mrc file into montages...", loading=True))
 
         # Extract pieces
         pieces_file = file.parent / (file.stem + "_pieces.txt")
@@ -633,8 +634,8 @@ def splitMontageFile(sender, app_data, user_data):
                 #shutil.move(file, os.path.join(os.path.dirname(file), "multi_montage_files", os.path.basename(file)))
                 shutil.move(file, file.parent / "multi_montage_files" / file.name)
 
-        dpg.delete_item(processing_box)
-        dpg.split_frame()
+        while InfoBoxManager._stack and InfoBoxManager._stack[0].loading:
+            InfoBoxManager.pop()
 
         log(f"{file.name} was split into {len(tile_nums)} files!")
-        showInfoBox("INFO", f"{file.name} was split into {len(tile_nums)} montage files.\nPlease try loading one of them!")
+        InfoBoxManager.push(InfoBox("INFO", f"{file.name} was split into {len(tile_nums)} montage files.\nPlease try loading one of them!"))
