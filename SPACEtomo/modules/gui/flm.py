@@ -34,6 +34,7 @@ import numpy as np
 from SPACEtomo.modules.gui import gui
 from SPACEtomo.modules.gui.plot import Plot
 from SPACEtomo.modules.gui.menu import Menu
+from SPACEtomo.modules.gui.info import StatusLine
 from SPACEtomo.modules.gui.map import MMap
 from SPACEtomo.modules import utils
 from SPACEtomo.modules.utils import log
@@ -107,7 +108,7 @@ class FlmWindow:
                         self.lm_menu.addButton(tag="flm_transform", label="Transform", callback=self.showTransform, show=False)
 
                         # Create line for status updates
-                        self.status = gui.StatusLine()
+                        self.status = StatusLine()
 
                     with dpg.table_cell(tag="flm_emplot"):
                         dpg.add_text(default_value="EM map", tag="flm_em1", color=gui.COLORS["heading"])
