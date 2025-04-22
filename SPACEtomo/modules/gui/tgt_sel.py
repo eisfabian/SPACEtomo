@@ -2304,7 +2304,7 @@ class TargetGUI:
                 self.checkPointFiles()
 
                 # Preload map in background
-                if self.preload_maps:
+                if self.preload_maps and self.map_list:
                     # If preloading is in progress, check if it is done
                     if isinstance(self.preloaded_data, concurrent.futures.Future):
                         if self.preloaded_data.done():
