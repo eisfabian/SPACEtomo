@@ -82,6 +82,9 @@ def main():
             log(f"SerialEM scripts were successfully copied to: {target_path}")
         else:
             log(f"ERROR: A folder named SerialEM_scripts already exists!")
+    elif args.task.lower() == "sort":
+        from SPACEtomo import run_sort
+        process = run_sort.main(Path(args.map_file) if args.map_file else None)
     else:
         raise ValueError(f"No task found with name {args.task}!")
 
@@ -92,7 +95,7 @@ def main():
             map_file = Path(args.map_file)
             if not map_file.exists():
                 map_file = ""
-                log("WARNING: Map file does not exist! Attempting to start task without map...")            
+                log("WARNING: Path does not exist! Attempting to start task without path...")            
     
         # Run GUI
         show(gui, map_file)
