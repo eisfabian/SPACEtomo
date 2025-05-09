@@ -32,4 +32,4 @@ def main(file_path: Path, key="TiltAngle"):
     ts_stack.updateMrc()
     #ts_stack.writeNewMrc()
 
-    log(f"NOTE: {file_path.name} was sorted by tilt angle!")
+    log(f"NOTE: {file_path.name} was sorted by {key}!")

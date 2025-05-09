@@ -58,6 +58,8 @@ def main():
     parser = argparse.ArgumentParser(description="Command line interface for different SPACEtomo functions (e.g. GUIs).")
     parser.add_argument("task", type=str, default="targets", help="Name of the SPACEtomo task to run. Options: targets -> Open target selection GUI | grid -> Open Region selection GUI | run -> Start SPACEtomo run | scripts -> Get copy of SerialEM scripts")
     parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map file to load in GUI [.png].")
+    # Deal with *args
+    parser.add_argument("args", nargs=argparse.REMAINDER, help="Additional arguments for the task.")
     args = parser.parse_args()
 
     # Get GUI
@@ -84,7 +86,7 @@ def main():
             log(f"ERROR: A folder named SerialEM_scripts already exists!")
     elif args.task.lower() == "sort":
         from SPACEtomo import run_sort
-        process = run_sort.main(Path(args.map_file) if args.map_file else None)
+        process = run_sort.main(Path(args.map_file) if args.map_file else None, *args.args)
     else:
         raise ValueError(f"No task found with name {args.task}!")
 
