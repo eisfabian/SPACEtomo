@@ -141,7 +141,10 @@ def main():
     for grid_slot in remaining_grid_list:
 
         # Get grid name
-        grid_name = microscope.autoloader[grid_slot]
+        grid_name = microscope.autoloader.get(grid_slot)
+        if grid_name is None:
+            log(f"ERROR: The grid slot {grid_slot} is empty! If this grid is currently on the stage, please give it a name in the Autoloader panel!")
+            continue
 
         # Setup dirs
         CUR_DIR = SES_DIR / grid_name
