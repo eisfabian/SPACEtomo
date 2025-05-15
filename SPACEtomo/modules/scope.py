@@ -519,6 +519,8 @@ class Microscope:
                 if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!":
                     self.autoloader[slot] = slot_status[-1]
                 else:
+                    log(f"WARNING: Please enter names for occupied slots in the Autoloader panel!")
+                    log(f"NOTE: Naming grid in slot {slot} to G{str(slot).zfill(2)} internally.")
                     self.autoloader[slot] = "G" + str(slot).zfill(2)
             else:
                 if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!":
