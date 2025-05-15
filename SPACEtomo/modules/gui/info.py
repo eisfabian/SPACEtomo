@@ -57,8 +57,10 @@ class InfoBoxManager:
         if cls._stack and (not dpg.does_item_exist(cls._stack[0].infobox) or not dpg.is_item_shown(cls._stack[0].infobox)):
             log(f"DEBUG: Showing InfoBox: {cls._stack[0].title}")
             cls._stack[0].show()
-        else:
+        elif cls._stack:
             log(f"DEBUG: NOT YET showing InfoBox: {cls._stack[0].title}")
+        else:
+            log(f"DEBUG: No InfoBox to show.")
 
     @classmethod
     def pop(cls):
