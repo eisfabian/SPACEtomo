@@ -621,7 +621,7 @@ class Buffer:
         spacing_px = spacing_nm / self.pix_size
         try:
             sem.StartTry(1)
-            spacing = sem.AutoCorrPeakVectors(self.buf, spacing_px, 0, int(config.DEBUG))
+            spacing = sem.AutoCorrPeakVectors(self.buf, spacing_px, 0, int(not config.DEBUG))
         except sem.SEMerror:
             log(f"WARNING: Finding grid pattern failed on buffer [{self.buf}].")
             return
