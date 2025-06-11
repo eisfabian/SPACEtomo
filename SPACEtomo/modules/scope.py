@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2025/02/19: added beam blanking
+# Last Change:  2025/05/31: added search params
+#               2025/02/19: added beam blanking
 #               2024/09/04: fixed autoloader check, fixed delay during imaging state change
 #               2024/09/02: moved MicroscopeDummy to dummy modules
 #               2024/08/27: added generation of detailed MM montage, made MicroscopeDummy work
@@ -516,14 +517,14 @@ class Microscope:
             slot_status = sem.ReportSlotStatus(slot)
             log(f"DEBUG: Slot status: {slot_status}")
             if slot_status[0] > 0:
-                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!":
+                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
                     self.autoloader[slot] = slot_status[-1]
                 else:
                     log(f"WARNING: Please enter names for occupied slots in the Autoloader panel!")
                     log(f"NOTE: Naming grid in slot {slot} to G{str(slot).zfill(2)} internally.")
                     self.autoloader[slot] = "G" + str(slot).zfill(2)
             else:
-                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!":
+                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
                     log(f"DEBUG: Slot label: {slot_status[-1]}, Type: {type(slot_status[-1])}, Len: {len(slot_status[-1])}")
                     self.autoloader[slot] = slot_status[-1]
                     if not self.loaded_grid:
@@ -842,11 +843,11 @@ class ImagingParams:
                 self.s2ss_matrix = matrices["s2ss"]
                 self.focus_c2ss_matrix = matrices["c2ss"]
                 self.focus_ss2is_matrix = matrices["ss2is"]
-                self.focus_ta_rotation = 90 - np.degrees(np.arctan(self.rec_c2ss_matrix[0, 1] / self.rec_c2ss_matrix[0, 0]))
-                self.focus_rotM = np.array([[np.cos(np.radians(self.rec_ta_rotation)), np.sin(np.radians(self.rec_ta_rotation))], [-np.sin(np.radians(self.rec_ta_rotation)), np.cos(np.radians(self.rec_ta_rotation))]])
+                self.focus_ta_rotation = 90 - np.degrees(np.arctan(self.focus_c2ss_matrix[0, 1] / self.focus_c2ss_matrix[0, 0]))
+                self.focus_rotM = np.array([[np.cos(np.radians(self.focus_ta_rotation)), np.sin(np.radians(self.focus_ta_rotation))], [-np.sin(np.radians(self.focus_ta_rotation)), np.cos(np.radians(self.focus_ta_rotation))]])
                 self.focus_beam_diameter = microscope.beam_size
 
-                if self.rec_beam_diameter < 0:
+                if self.focus_beam_diameter < 0:
                     log(f"ERROR: Illuminated area/beam diameter is negative! Please check your imaging state setup!")
                     sys.exit()
                 return
@@ -866,6 +867,50 @@ class ImagingParams:
         self.focus_ta_rotation = self.rec_ta_rotation
         self.focus_rotM = self.rec_rotM
         self.focus_beam_diameter = self.rec_beam_diameter
+
+    @dummy_skip
+    @serialem_check
+    def getSearchParams(self, microscope: Microscope, final_attempt=False):
+
+        # Check if Focus mag differs from Rec
+        view_pix_size = sem.ReportCurrentPixelSize("V") / sem.ReportBinning("V")
+        search_pix_size = sem.ReportCurrentPixelSize("S") / sem.ReportBinning("S")
+
+        if search_pix_size != view_pix_size:
+            microscope.changeLowDoseArea("S")
+
+            if microscope.low_dose and microscope.low_dose_area == "S":
+                self.cam_dims = microscope.camera_dims
+
+                self.search_pix_size = microscope.camera_pix_size
+                matrices = microscope.getMatrices()
+                self.s2ss_matrix = matrices["s2ss"]
+                self.search_c2ss_matrix = matrices["c2ss"]
+                self.search_ss2is_matrix = matrices["ss2is"]
+                self.search_ta_rotation = 90 - np.degrees(np.arctan(self.search_c2ss_matrix[0, 1] / self.search_c2ss_matrix[0, 0]))
+                self.search_rotM = np.array([[np.cos(np.radians(self.search_ta_rotation)), np.sin(np.radians(self.search_ta_rotation))], [-np.sin(np.radians(self.search_ta_rotation)), np.cos(np.radians(self.search_ta_rotation))]])
+                self.search_beam_diameter = microscope.beam_size
+
+                if self.search_beam_diameter < 0:
+                    log(f"ERROR: Illuminated area/beam diameter is negative! Please check your imaging state setup!")
+                    sys.exit()
+                return
+            else:
+                if not final_attempt:
+                    log(f"WARNING: Cannot get Search parameters in current Low Dose state {microscope.low_dose}, {microscope.low_dose_area}. Trying to switch to medium mag imaging state...")
+                    microscope.changeImagingState(self.MM_image_state, low_dose_expected=True)
+                    microscope.changeC2Aperture(config.c2_apertures[2])
+                    microscope.changeLowDoseArea("S")
+                    self.getSearchParams(microscope, final_attempt=True)
+                    return
+
+        # Use View params as backup
+        self.search_pix_size = self.view_pix_size
+        self.search_c2ss_matrix = self.view_c2ss_matrix
+        self.search_ss2is_matrix = self.view_ss2is_matrix
+        self.search_ta_rotation = self.view_ta_rotation
+        self.search_rotM = self.view_rotM
+        self.search_beam_diameter = self.view_beam_diameter
 
     def export(self, dir):
         params_file = Path(dir) / self.file_name
