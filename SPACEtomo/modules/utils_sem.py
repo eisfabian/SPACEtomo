@@ -90,6 +90,25 @@ def checkImagingStates(states=[], low_dose_expected=[]):
         log("ERROR: Imaging states have duplicate magnifications!")
         sem.Exit()
 
+def getImagingStates():
+    """Returns a list of imaging states in SerialEM."""
+
+    imaging_states = []
+    for state in range(1, 100):
+        state_props = sem.ImagingStateProperties(str(state))
+
+        if isinstance(state_props, (list, tuple)):
+            error, index, low_dose, camera, mag_index, name = state_props
+        else:
+            error = state_props
+
+        if error > 0:
+            break # No more imaging states available
+
+        imaging_states.append((index, name, low_dose, camera, mag_index))
+
+    return imaging_states
+
 def getSessionDir():
     """Sets up top level dir for SPACEtomo session."""
 
