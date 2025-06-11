@@ -138,6 +138,7 @@ def main():
     microscope.changeC2Aperture(config.c2_apertures[2])
     microscope.changeLowDoseArea("V")
     imaging_params.getViewParams(microscope)
+    imaging_params.getSearchParams(microscope)
     microscope.changeLowDoseArea("R")
     imaging_params.getRecParams(microscope)
     imaging_params.getFocusParams(microscope)

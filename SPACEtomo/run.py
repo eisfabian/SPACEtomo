@@ -135,7 +135,10 @@ def main():
     #if not microscope.changeImagingState(imaging_params.MM_image_state, low_dose_expected=True):
     #    log(f"ERROR: The provided medium mag imaging state [MM_image_state] is not in Low Dose mode!")
     #    return
-    usem.checkImagingStates(states=[settings["WG_image_state"], settings["IM_image_state"]] + settings["MM_image_state"], low_dose_expected=[False, False] + [True] * len(settings["MM_image_state"]))
+    if settings["automation_level"] >= 2:
+        usem.checkImagingStates(states=[settings["WG_image_state"], settings["IM_image_state"]] + settings["MM_image_state"], low_dose_expected=[False, False] + [True] * len(settings["MM_image_state"]))
+    else:
+        usem.checkImagingStates(states=[settings["WG_image_state"]], low_dose_expected=[False])
 
     # Run on every grid
     for grid_slot in remaining_grid_list:
@@ -296,6 +299,7 @@ def main():
             # Get imaging parameters and save
             microscope.changeLowDoseArea("V")
             imaging_params.getViewParams(microscope)
+            imaging_params.getSearchParams(microscope)
             microscope.changeLowDoseArea("R")
             imaging_params.getRecParams(microscope)
             imaging_params.getFocusParams(microscope)
