@@ -26,7 +26,7 @@
 
 import numpy as np
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw
 Image.MAX_IMAGE_PIXELS = None
 from skimage import transform, draw
 import dearpygui.dearpygui as dpg
@@ -64,6 +64,23 @@ def configureGlobalTheme():
         with dpg.theme_component(dpg.mvImageButton):
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 5, category=dpg.mvThemeCat_Core)
             dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 5, 5)
+
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 5, category=dpg.mvThemeCat_Core)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 5, 5)
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (32, 32, 32, 255), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (32, 32, 32, 255), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["error"], category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (64, 64, 64, 255), category=dpg.mvThemeCat_Core)  
+
+        # Checkboxes
+        with dpg.theme_component(dpg.mvCheckbox):
+            #dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (32, 32, 32, 255), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, COLORS["heading"], category=dpg.mvThemeCat_Core)
+        with dpg.theme_component(dpg.mvCheckbox, enabled_state=False):
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (32, 32, 32, 255), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (64, 64, 64, 255), category=dpg.mvThemeCat_Core)
+
 
     # Theme for large buttons
     with dpg.theme(tag="large_btn_theme"):
@@ -130,6 +147,49 @@ def makeLogo(radius=100, stroke=3, oversampling=2):
         dpg.add_static_texture(width=logo_dims[1], height=logo_dims[0], default_value=logo, tag="logo")
 
     return logo_dims
+
+def makeTargetOverlay(beam_diameter, cam_dims, ta_rotation_beam, ta_rotation_fov, color_beam="#ffd700", color_fov="#578abf", color_alpha=1, max_tilt=60 ):
+    """Generates target overlay textures."""
+
+    downscale_texture = 4  # Downscale factor for texture size to save memory, needs to be adjusted in tgt_sel.py => showTargets
+    beam_diameter = beam_diameter / downscale_texture
+    cam_dims = np.array(cam_dims) / downscale_texture
+
+    # Create canvas with size of stretched beam diameter
+    overlay = np.zeros([int(beam_diameter), int(beam_diameter / np.cos(np.radians(max_tilt)))])
+    print(overlay.shape)
+    canvas = Image.fromarray(overlay).convert('RGB')
+    draw = ImageDraw.Draw(canvas)
+
+    # Draw beam
+    draw.ellipse((0, 0, overlay.shape[1] - 1, overlay.shape[0] - 1), outline=color_beam, width=int(20 / downscale_texture))
+
+    # Rotate tilt axis
+    canvas = canvas.rotate(-ta_rotation_fov, expand=True)
+
+    # Draw camera outline
+    rect = ((canvas.width - cam_dims[1]) // 2, (canvas.height - cam_dims[0]) // 2, (canvas.width + cam_dims[1]) // 2, (canvas.height + cam_dims[0]) // 2)
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle(rect, outline=color_fov, width=int(20 / downscale_texture))
+
+    # Rotate by difference between view and rec tilt axis
+    canvas = canvas.rotate(-(ta_rotation_beam - ta_rotation_fov), expand=True)
+
+    # Convert to array
+    overlay = np.array(canvas).astype(float) / 255
+
+    # Make textures
+    overlay_dims = np.array(overlay.shape)[:2]
+    alpha = np.zeros(overlay.shape[:2])
+    alpha[np.sum(overlay, axis=-1) > 0] = 1
+    overlay_image = np.ravel(np.dstack([overlay, alpha * color_alpha]))
+
+    with dpg.texture_registry():
+        overlay_texture = dpg.add_static_texture(width=int(overlay_dims[1]), height=int(overlay_dims[0]), default_value=overlay_image)
+
+    print("Created texture...")
+
+    return overlay_texture, overlay_dims
 
 def makeIconRotation(ccw=False):
     """Makes clockwise arrow icon."""
@@ -744,11 +804,18 @@ def makeIco():
 
     return logo_center
 
-def window_size_change(logo_dims):
-    # Update items anchored to side of window
-    dpg.set_item_pos("logo_img", pos=(10, dpg.get_viewport_client_height() - 40 - logo_dims[0]))
-    #dpg.set_item_pos("logo_text", pos=(10 + logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() - 40 - logo_dims[0] / 2))
-    dpg.set_item_pos("version_text", pos=(10 + logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() + 5 - logo_dims[0] / 2))
+def window_size_change(logo_dims, align="left"):
+
+    if align == "left":
+        # Update items anchored to side of window
+        dpg.set_item_pos("logo_img", pos=(10, dpg.get_viewport_client_height() - 40 - logo_dims[0]))
+        #dpg.set_item_pos("logo_text", pos=(10 + logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() - 40 - logo_dims[0] / 2))
+        dpg.set_item_pos("version_text", pos=(10 + logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() + 5 - logo_dims[0] / 2))
+    elif align == "right":
+        # Update items anchored to side of window
+        dpg.set_item_pos("logo_img", pos=(dpg.get_viewport_client_width() - 10 - logo_dims[1], dpg.get_viewport_client_height() - 40 - logo_dims[0]))
+        #dpg.set_item_pos("logo_text", pos=(dpg.get_viewport_client_width() - 10 - logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() - 40 - logo_dims[0] / 2))
+        dpg.set_item_pos("version_text", pos=(dpg.get_viewport_client_width() - 10 - logo_dims[1] / 2 - (30), dpg.get_viewport_client_height() + 5 - logo_dims[0] / 2))
 
 def askForSave():
     # TODO check for saving conditions

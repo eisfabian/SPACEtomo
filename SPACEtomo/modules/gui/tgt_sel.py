@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2025/04/12: added InfoBoxManager to stack popups
+# Last Change:  2025/05/31: outsourced makeTargetOverlay to gui.py, added support for targets using different LD areas
+#               2025/04/12: added InfoBoxManager to stack popups
 #               2025/04/08: fixed tooltip combination of hidden buttons
 #               2025/03/14: added dense pattern, added threaded preloading of next map
 #               2025/03/10: added polygon mode to exclude suggestions, added add suggestions button
@@ -90,7 +91,8 @@ class TargetGUI:
 
         # Left mouse button + Shift functions
         if dpg.is_mouse_button_down(dpg.mvMouseButton_Left) and (dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)):
-            if self.targets.addTarget(img_coords, new_area=dpg.is_key_down(dpg.mvKey_T)):
+            ld_area = "V" if dpg.is_key_down(dpg.mvKey_V) else "S" if dpg.is_key_down(dpg.mvKey_S) else "R"
+            if self.targets.addTarget(img_coords, new_area=dpg.is_key_down(dpg.mvKey_T), ld_area=ld_area):
                 self.showTargets()
                 self.showTargetAreaButtons()
                 self.menu_right.showElements(["butsave"])
@@ -696,6 +698,8 @@ class TargetGUI:
     def showTargets(self):
         """Updates target overlays on plot."""
 
+        downscale_texture = 4  # Downscale factor for texture size to save memory, needs to be adjusted in gui.py => makeTargetOverlay
+
         # Skip rest if currently no targets
         if not self.targets and not self.targets.suggestions:
             return
@@ -708,7 +712,7 @@ class TargetGUI:
         self.plot.updateLabel(f"{self.map_name} [{len(self.targets)} targets]")
 
         # Generate target overlay texture
-        if not self.target_overlays or not dpg.does_item_exist(self.target_overlays["target"]):
+        if not self.target_overlays or not dpg.does_item_exist(self.target_overlays["target_R"]):
             self.makeTargetOverlay()
 
         # Get map dims
@@ -743,14 +747,15 @@ class TargetGUI:
                 self.plot.addSeries(points_beyond_limit[:, 0], points_beyond_limit[:, 1], label=f"Out of IS range", theme=f"limit_scatter_theme")
 
             # Go over all target points
-            scaled_overlay_dims = self.target_overlays["tgtdims"] * self.loaded_map.pix_size / 1000
+            #scaled_overlay_dims = self.target_overlays["tgtdims"] * self.loaded_map.pix_size / 1000 * downscale_texture
             for p, (x, y) in enumerate(points):
                 # Show graphical overlays
+                scaled_overlay_dims = self.target_overlays[f"tgtdims_{target_area.ld_areas[p]}"] * self.loaded_map.pix_size / 1000 * downscale_texture
                 bounds = ((x - scaled_overlay_dims[1] / 2, x + scaled_overlay_dims[1] / 2), (y - scaled_overlay_dims[0] / 2, y + scaled_overlay_dims[0] / 2))
                 if p == 0:
-                    self.plot.addOverlay(self.target_overlays["track"], bounds, label=f"tgt_{t}_{p}")
+                    self.plot.addOverlay(self.target_overlays[f"track_{target_area.ld_areas[p]}"], bounds, label=f"tgt_{t}_{p}")
                 else:
-                    self.plot.addOverlay(self.target_overlays["target"], bounds, label=f"tgt_{t}_{p}")
+                    self.plot.addOverlay(self.target_overlays[f"target_{target_area.ld_areas[p]}"], bounds, label=f"tgt_{t}_{p}")
 
                 tgt_counter += 1
 
@@ -773,7 +778,7 @@ class TargetGUI:
             # Transform geo coords to plot
             points = np.array([self.loaded_map.px2microns(point) for point in self.targets.suggestions])
 
-            scaled_overlay_dims = self.target_overlays["tgtdims"] * self.loaded_map.pix_size / 1000
+            scaled_overlay_dims = self.target_overlays["tgtdims_R"] * self.loaded_map.pix_size / 1000
             for p, (x, y) in enumerate(points):
                 # Show graphical overlays
                 bounds = ((x - scaled_overlay_dims[1] / 2, x + scaled_overlay_dims[1] / 2), (y - scaled_overlay_dims[0] / 2, y + scaled_overlay_dims[0] / 2))
@@ -1339,6 +1344,10 @@ class TargetGUI:
             # Get coords
             coords = self.targets.areas[area_id].points[point_id]
 
+            # Get data
+            score = self.targets.areas[area_id].scores[point_id]
+            ld_area = self.targets.areas[area_id].ld_areas[point_id]
+
             # Remove point from old area
             self.targets.areas[area_id].removePoint(point_id)
             
@@ -1347,7 +1356,7 @@ class TargetGUI:
                 self.targets.areas.pop(area_id)
             
             # Create new area with point
-            self.targets.addTarget(coords, new_area=True)
+            self.targets.addTarget(coords, new_area=True, ld_area=ld_area)
             log("NOTE: Created new acquisition area!")
         else:
             # Move point to beginning of area
@@ -1685,7 +1694,34 @@ class TargetGUI:
         # Return early if target overlays already exist
         if self.target_overlays:
             return
+        
+        # TARGET
+        rec_beam_diameter_px = self.mic_params.rec_beam_diameter * 1000 / self.loaded_map.pix_size
+        rec_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.rec_pix_size / self.loaded_map.pix_size).astype(int)     
+        self.target_overlays["target_R"], self.target_overlays["tgtdims_R"] = gui.makeTargetOverlay(beam_diameter=rec_beam_diameter_px, cam_dims=rec_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.rec_ta_rotation, color_beam="#ffd700", color_fov="#578abf", max_tilt=self.tgt_params.max_tilt)
+        self.target_overlays["track_R"], _ = gui.makeTargetOverlay(beam_diameter=rec_beam_diameter_px, cam_dims=rec_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.rec_ta_rotation, color_beam="#ffd700", color_fov="#c92b27", max_tilt=self.tgt_params.max_tilt)
 
+        # SUGGESTION
+        self.target_overlays["suggestion"], _ = gui.makeTargetOverlay(beam_diameter=rec_beam_diameter_px, cam_dims=rec_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.rec_ta_rotation, color_beam="#ffffff", color_fov="#ffffff", color_alpha=0.25, max_tilt=self.tgt_params.max_tilt)
+
+        # GEO
+        focus_beam_diameter_px = self.mic_params.focus_beam_diameter * 1000 / self.loaded_map.pix_size
+        focus_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.focus_pix_size / self.loaded_map.pix_size).astype(int)
+        self.target_overlays["geo"], self.target_overlays["geodims"] = gui.makeTargetOverlay(beam_diameter=focus_beam_diameter_px, cam_dims=focus_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.rec_ta_rotation, color_beam="#ee8844", color_fov="#ee8844", max_tilt=0)
+
+        # VIEW
+        view_beam_diameter_px = self.mic_params.view_beam_diameter * 1000 / self.loaded_map.pix_size
+        view_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.view_pix_size / self.loaded_map.pix_size).astype(int)
+        self.target_overlays["target_V"], self.target_overlays["tgtdims_V"] = gui.makeTargetOverlay(beam_diameter=view_beam_diameter_px, cam_dims=view_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.view_ta_rotation, color_beam="#ffd700", color_fov="#578abf", max_tilt=self.tgt_params.max_tilt)
+        self.target_overlays["track_V"], _ = gui.makeTargetOverlay(beam_diameter=view_beam_diameter_px, cam_dims=view_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.view_ta_rotation, color_beam="#ffd700", color_fov="#c92b27", max_tilt=self.tgt_params.max_tilt)
+
+        # SEARCH
+        search_beam_diameter_px = self.mic_params.search_beam_diameter * 1000 / self.loaded_map.pix_size
+        search_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.search_pix_size / self.loaded_map.pix_size).astype(int)
+        self.target_overlays["target_S"], self.target_overlays["tgtdims_S"] = gui.makeTargetOverlay(beam_diameter=search_beam_diameter_px, cam_dims=search_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.search_ta_rotation, color_beam="#ffd700", color_fov="#578abf", max_tilt=self.tgt_params.max_tilt)
+        self.target_overlays["track_S"], _ = gui.makeTargetOverlay(beam_diameter=search_beam_diameter_px, cam_dims=search_dims, ta_rotation_beam=self.mic_params.view_ta_rotation, ta_rotation_fov=self.mic_params.search_ta_rotation, color_beam="#ffd700", color_fov="#c92b27", max_tilt=self.tgt_params.max_tilt)
+
+        """
         # TGT
         # Get camera dims
         rec_beam_diameter_px = self.mic_params.rec_beam_diameter * 1000 / self.loaded_map.pix_size
@@ -1701,17 +1737,20 @@ class TargetGUI:
         #draw.ellipse(((tgt_overlay.shape[1] - tgt_overlay.shape[0]) / 2, 0, (tgt_overlay.shape[1] + tgt_overlay.shape[0]) / 2 - 1, tgt_overlay.shape[0] - 1), outline="#ffd700", width=20)
 
         # Rotate tilt axis
-        canvas = canvas.rotate(-self.mic_params.view_ta_rotation, expand=True)
+        canvas = canvas.rotate(-self.mic_params.rec_ta_rotation, expand=True)
 
         # Draw camera outline
         rect = ((canvas.width - rec_dims[1]) // 2, (canvas.height - rec_dims[0]) // 2, (canvas.width + rec_dims[1]) // 2, (canvas.height + rec_dims[0]) // 2)
         draw = ImageDraw.Draw(canvas)
         draw.rectangle(rect, outline="#578abf", width=20)
 
+        canvas = canvas.rotate(-(self.mic_params.view_ta_rotation - self.mic_params.rec_ta_rotation), expand=True)
+
         # Convert to array
         tgt_overlay = np.array(canvas).astype(float) / 255
 
         # Draw camera outline for tracking target
+        draw = ImageDraw.Draw(canvas)
         draw.rectangle(rect, outline="#c92b27", width=20)
 
         # Convert to array
@@ -1758,7 +1797,8 @@ class TargetGUI:
             self.target_overlays["track"] = dpg.add_static_texture(width=int(self.target_overlays["tgtdims"][1]), height=int(self.target_overlays["tgtdims"][0]), default_value=trk_overlay_image)
             self.target_overlays["geo"] = dpg.add_static_texture(width=int(self.target_overlays["geodims"][1]), height=int(self.target_overlays["geodims"][0]), default_value=geo_overlay_image)
             self.target_overlays["suggestion"] = dpg.add_static_texture(width=int(self.target_overlays["tgtdims"][1]), height=int(self.target_overlays["tgtdims"][0]), default_value=sug_overlay_image)
-
+        """
+            
     def savePlot(self, sender, app_data, user_data):
         """Gets frame buffer to save plot to file. (Does not work on MacOS.)"""
 

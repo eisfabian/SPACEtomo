@@ -53,7 +53,7 @@ class Targets:
 
 
 
-    def addTarget(self, coords, new_area=False):
+    def addTarget(self, coords, new_area=False, ld_area="R"):
         """Checks conditions and adds new target to closest target area."""
 
         # Check if coords are out of bounds
@@ -67,7 +67,7 @@ class Targets:
 
         # Check if coords are too close to existing point
         closest_point_id, in_range = self.getClosestPoint(coords, np.min(self.rec_dims))
-        if in_range:
+        if in_range and ld_area == "R": # allow overlapping targets for non Record targets
             log("WARNING: Target is too close to an existing target! It will not be added.")
             return False
         
@@ -86,7 +86,7 @@ class Targets:
             closest_area = self.getClosestArea(coords)
 
         # Add point
-        self.areas[closest_area].addPoint(coords)
+        self.areas[closest_area].addPoint(coords, ld_area=ld_area)
         log("NOTE: Added new target!")
         return True
 
@@ -123,10 +123,11 @@ class Targets:
     
         # Get point data
         coords = self.areas[old_area_id].points[old_point_id]
+        ld_area = self.areas[old_area_id].ld_areas[old_point_id]
         score = self.areas[old_area_id].scores[old_point_id]
 
         # Add to new area
-        self.areas[new_area_id].addPoint(coords, score=score)
+        self.areas[new_area_id].addPoint(coords, ld_area=ld_area, score=score)
 
         # Remove from old area (and area if no points remaining)
         self.areas[old_area_id].removePoint(old_point_id)
@@ -239,8 +240,8 @@ class Targets:
 
             # Extract points from all previous areas
             for area in self.areas:
-                for point, score in zip(area.points, area.scores):
-                    merged_area.addPoint(point, score=score)
+                for point, ld_area, score in zip(area.points, area.ld_areas, area.scores):
+                    merged_area.addPoint(point, ld_area=ld_area, score=score)
 
                 for point in area.geo_points:
                     # Check if geo point was already added to merged_area
@@ -267,7 +268,7 @@ class Targets:
         for point_id, area_id in enumerate(labels):
             while area_id >= len(new_areas):
                 new_areas.append(TargetArea())
-            new_areas[area_id].addPoint(self.areas[0].points[point_id], score=self.areas[0].scores[point_id])
+            new_areas[area_id].addPoint(self.areas[0].points[point_id], ld_area=self.areas[0].ld_areas[point_id], score=self.areas[0].scores[point_id])
 
         # Center tracking target
         for area_id, area in enumerate(new_areas):
@@ -287,7 +288,7 @@ class Targets:
 
         remove_list = []
         for area_id, area in enumerate(self.areas):
-            for point_id, (point, score) in enumerate(zip(area.points, area.scores)):
+            for point_id, (point, ld_area, score) in enumerate(zip(area.points, area.ld_areas, area.scores)):
                 # Skip tracking target
                 if point_id == 0: continue
 
@@ -297,7 +298,7 @@ class Targets:
                 # If closest tracking point is not current area
                 if closest_area_id != area_id:
                     # Move point from current to closest area
-                    self.areas[closest_area_id].addPoint(point, score=score)
+                    self.areas[closest_area_id].addPoint(point, ld_area=ld_area, score=score)
                     remove_list.append((area_id, point_id))
 
         # Remove points that were moved (starting from highest ids)
@@ -380,6 +381,7 @@ class TargetArea:
     def __init__(self, file=None) -> None:
         self.points = np.empty([0, 2])
         self.scores = np.empty(0)
+        self.ld_areas = np.empty(0, dtype=str)  # Low Dose areas, e.g. "R" for Record
         self.geo_points = np.empty([0, 2])
 
         self.meta_data = {}
@@ -404,6 +406,8 @@ class TargetArea:
 
         if np.any(area["points"]):
             self.points = area["points"]
+        if "ld_areas" in area and np.any(area["ld_areas"]):
+            self.ld_areas = area["ld_areas"]
         if np.any(area["scores"]):
             self.scores = area["scores"]
         if np.any(area["geo_points"]):
@@ -417,7 +421,7 @@ class TargetArea:
         """Writes targets to json file."""
 
         # Convert to dictionary
-        output_dict = {"points": self.points, "scores": self.scores, "geo_points": self.geo_points}
+        output_dict = {"points": self.points, "ld_areas": self.ld_areas, "scores": self.scores, "geo_points": self.geo_points}
 
         # Set measureGeo to True if geo points exist
         if len(self.geo_points) > 0:
@@ -436,16 +440,19 @@ class TargetArea:
         with open(file, "w") as f:
             json.dump(output_dict, f, indent=4, default=utils.convertToTaggedString)
 
-    def addPoint(self, coords, geo=False, score=100):
+    def addPoint(self, coords, geo=False, ld_area="R", score=100):
         """Adds new point at coords."""
 
         if not geo:
             self.points = np.vstack([self.points, coords])
+            self.ld_areas = np.append(self.ld_areas, [ld_area])
             self.scores = np.append(self.scores, [score])
             if self.center is None:
                 self.center = coords
         else:
             self.geo_points = np.vstack([self.geo_points, coords])
+
+        log(f"Added point {coords} with score {score} using Low Dose area {ld_area}.")
 
     def updatePoint(self, id, coords):
         """Updates point by id."""
@@ -458,6 +465,7 @@ class TargetArea:
         """Removes point by id."""
 
         self.points = np.delete(self.points, id, axis=0)
+        self.ld_areas = np.delete(self.ld_areas, id, axis=0)
         self.scores = np.delete(self.scores, id, axis=0)
 
         # Update center
@@ -471,6 +479,8 @@ class TargetArea:
 
     def makeTrack(self, id):
         self.points[0: id + 1] = np.roll(self.points[0: id + 1], shift=1, axis=0)
+        self.ld_areas[0: id + 1] = np.roll(self.ld_areas[0: id + 1], shift=1, axis=0)
+        self.scores[0: id + 1] = np.roll(self.scores[0: id + 1], shift=1, axis=0)
 
         # Update center
         self.center = self.points[0]
@@ -685,6 +695,7 @@ class PACEArea(TargetArea):
                 "SSY": self.points_ss[p][1], 
                 "stageX": point[0], 
                 "stageY": point[1], 
+                "LDArea": self.ld_areas[p],
                 "SPACEscore": self.scores[p], 
                 "skip": "False"})
 
