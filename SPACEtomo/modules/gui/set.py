@@ -57,6 +57,18 @@ faulthandler.enable()
 
 class SettingsGUI:
 
+    def loadDefaultSettings(self):
+        """Loads default settings from default file and updates the GUI elements accordingly."""
+
+        default_settings_file = Path(__file__).parent.parent.parent / "config/default_settings.ini"
+        if default_settings_file.exists():
+            settings = utils.loadSettings(default_settings_file)
+            self.updateSettings(settings)
+
+            log(f"DEBUG: Loaded default settings from {default_settings_file}")
+
+        self.loaded_defaults = True
+
     def selectSettingsFile(self, sender, app_data, user_data):
         """Callback for settings file selection, loads settings from file."""
 
@@ -300,6 +312,11 @@ class SettingsGUI:
         utils.saveSettings(cur_dir / "SPACEtomo_settings.ini", settings)
         log(f"NOTE: Settings saved to {cur_dir / 'SPACEtomo_settings.ini'}")
 
+        # Also save settings internally as defaults for next run
+        config_dir = Path(__file__).parent.parent.parent / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        utils.saveSettings(config_dir / "default_settings.ini", settings)
+
     def startRun(self, sender, app_data, user_data):
         """Starts the SPACEtomo run with the current settings."""
 
@@ -382,6 +399,9 @@ class SettingsGUI:
 
             # Get imaging states from microscope
             self.imaging_states = usem.getImagingStates()
+
+        # One-time calls
+        self.loaded_defaults = False                # Needed to load defaults only once
 
     def configureHandlers(self):
         """Sets up dearpygui registries and handlers."""
@@ -598,6 +618,10 @@ class SettingsGUI:
         # Render loop
         next_update = time.time() + 1
         while dpg.is_dearpygui_running():
+
+            # Load defaults
+            if not self.loaded_defaults:
+                self.loadDefaultSettings()
 
             # Recheck folder for segmentation every minute
             now = time.time()
