@@ -163,16 +163,16 @@ class Menu:
             else:
                 self.elements[tag + "_tooltip"] = tooltip_id
 
-    def addInput(self, tag, label="", value=None, width=50, callback=None, tooltip="", advanced=False, **kwargs):
+    def addInput(self, tag, label="", value=None, width=50, callback=None, tooltip="", show=True, advanced=False, **kwargs):
         """Adds an input field to the current row and uses type of value."""
 
         # Add input to group
         if isinstance(value, float):
-            element = dpg.add_input_float(default_value=value, step=0, width=width, label=label, format="%.3f", callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_input_float(default_value=value, step=0, width=width, label=label, format="%.3f", callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         elif isinstance(value, int):
-            element = dpg.add_input_int(default_value=value, step=0, width=width, label=label, callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_input_int(default_value=value, step=0, width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         elif isinstance(value, str):
-            element = dpg.add_input_text(default_value=value, width=width, label=label, callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_input_text(default_value=value, width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         else:
             raise ValueError("No input element available for this type!")
         # Add to element list
@@ -182,7 +182,7 @@ class Menu:
             self.elements[tag] = element
 
         if tooltip:
-            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
                 dpg.add_text(tooltip)
             # Add to element list
             if advanced:
@@ -190,11 +190,11 @@ class Menu:
             else:
                 self.elements[tag + "_tooltip"] = tooltip_id
 
-    def addCheckbox(self, tag, label="", value=False, callback=None, tooltip="", advanced=False, **kwargs):
+    def addCheckbox(self, tag, label="", value=False, callback=None, tooltip="", show=True, advanced=False, **kwargs):
         """Adds checkbox to current row."""
 
         # Add checkbox to group
-        element = dpg.add_checkbox(label=label, default_value=value, callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+        element = dpg.add_checkbox(label=label, default_value=value, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         # Add to element list
         if advanced:
             self.elements_adv[tag] = element
@@ -202,7 +202,7 @@ class Menu:
             self.elements[tag] = element
 
         if tooltip:
-            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
                 dpg.add_text(tooltip)
             # Add to element list
             if advanced:
@@ -210,7 +210,7 @@ class Menu:
             else:
                 self.elements[tag + "_tooltip"] = tooltip_id
 
-    def addCombo(self, tag, label="", combo_list=[], value="", callback=None, user_data=None, width=0, tooltip="", advanced=False, **kwargs):
+    def addCombo(self, tag, label="", combo_list=[], value="", callback=None, user_data=None, width=0, tooltip="", show=True, advanced=False, **kwargs):
         """Adds dropdown menu to current row."""
 
         # Check if list and value are valid
@@ -219,7 +219,7 @@ class Menu:
         if not value or value not in combo_list:
             value = combo_list[0]
         # Add combo list to group
-        element = dpg.add_combo(combo_list, default_value=value, label=label, callback=callback, user_data=user_data, width=width, show=not advanced, parent=self.last_group, **kwargs)
+        element = dpg.add_combo(combo_list, default_value=value, label=label, callback=callback, user_data=user_data, width=width, show=show and not advanced, parent=self.last_group, **kwargs)
         # Add to element list
         if advanced:
             self.elements_adv[tag] = element
@@ -227,7 +227,7 @@ class Menu:
             self.elements[tag] = element
 
         if tooltip:
-            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
                 dpg.add_text(tooltip)
             # Add to element list
             if advanced:
@@ -235,14 +235,14 @@ class Menu:
             else:
                 self.elements[tag + "_tooltip"] = tooltip_id
 
-    def addSlider(self, tag, label="", value=0, value_range=[0, 1], width=50, callback=None, tooltip="", advanced=False, **kwargs):
+    def addSlider(self, tag, label="", value=0, value_range=[0, 1], width=50, callback=None, tooltip="", show=True, advanced=False, **kwargs):
         """Adds a slider to current row."""
 
         # Add slider to group
         if isinstance(value, float):
-            element = dpg.add_slider_float(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_slider_float(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         elif isinstance(value, int):
-            element = dpg.add_slider_int(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_slider_int(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         else:
             raise ValueError("No slider available for this type!")
         # Add to element list
@@ -252,7 +252,7 @@ class Menu:
             self.elements[tag] = element
 
         if tooltip:
-            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
                 dpg.add_text(tooltip)
             # Add to element list
             if advanced:
