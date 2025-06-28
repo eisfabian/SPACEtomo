@@ -821,8 +821,8 @@ def askForSave():
     # TODO check for saving conditions
     dpg.stop_dearpygui()
 
-def fileNav(tag, callback, dir=False, extensions=[]):
-    with dpg.file_dialog(directory_selector=dir, show=False, callback=callback, tag=tag, cancel_callback=cancel_callback, width=700 ,height=400): 
+def fileNav(tag, callback, dir=False, extensions=[], default_path=""):
+    with dpg.file_dialog(directory_selector=dir, default_path=default_path, show=False, callback=callback, tag=tag, cancel_callback=cancel_callback, width=700 ,height=400): 
         dpg.add_file_extension(".*") 
         for ext in extensions:
             dpg.add_file_extension(ext, color=COLORS["heading"])
