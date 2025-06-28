@@ -105,7 +105,10 @@ def getImagingStates():
         if error > 0:
             break # No more imaging states available
 
-        imaging_states.append((index, name, low_dose, camera, mag_index))
+        # Get pixel size
+        pixel_size = sem.CameraProperties(camera, mag_index)[4]
+        
+        imaging_states.append((index, name, low_dose, camera, mag_index, pixel_size))
 
     return imaging_states
 
@@ -134,6 +137,17 @@ def getSessionDir():
         sem.SetPersistentVar("ses_dir", str(ses_dir)) # Save grid dir as session dir in case user continues
 
     return ses_dir
+
+def setSessionDir(ses_dir):
+    """Sets session directory in SerialEM and logs it."""
+
+    ses_dir = Path(ses_dir)
+    if not ses_dir.exists():
+        log(f"ERROR: Session directory [{ses_dir}] does not exist!")
+
+    setDirectory(ses_dir)
+    sem.SetPersistentVar("ses_dir", str(ses_dir))
+    log(f"DEBUG: Session directory set to {ses_dir}")
 
 def getGridList(grid_list, automation_level):
     """Checks which grids need to be processed."""

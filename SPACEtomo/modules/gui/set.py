@@ -22,11 +22,13 @@ try:
     SERIALEM_AVAILABLE = True
 
     # Connect to SEM
-    from SPACEtomo.modules.utils_sem import connectSerialEM
-    connectSerialEM(config.SERIALEM_IP, config.SERIALEM_PORT)
+    import SPACEtomo.modules.utils_sem as usem
+    usem.connectSerialEM(config.SERIALEM_IP, config.SERIALEM_PORT)
+    SES_DIR = usem.getSessionDir()  # Get current session directory from SerialEM
 except ModuleNotFoundError:
     print("DEBUG: SerialEM module not found! Continuing without.")
     SERIALEM_AVAILABLE = False
+    SES_DIR = ""
 
 
 import time
@@ -56,6 +58,25 @@ import faulthandler
 faulthandler.enable()
 
 class SettingsGUI:
+
+    def selectSessionDir(self, sender, app_data, user_data):
+        """Callback for session directory selection, updates input field with selected directory."""
+
+        # Get selected directory
+        if app_data and "file_path_name" in app_data:
+            if Path(app_data["file_path_name"]).is_dir():
+                SES_DIR = app_data["file_path_name"]
+                if SERIALEM_AVAILABLE:
+                    usem.setSessionDir(SES_DIR)  # Set session directory in SerialEM
+            else:
+                log(f"ERROR: Selected path {app_data['file_path_name']} is not a directory!")
+                InfoBoxManager.push(InfoBox("ERROR", f"Selected path {app_data['file_path_name']} is not a directory!"))
+                return
+        else:
+            log("ERROR: No directory selected!")
+            return
+
+        log(f"NOTE: Session directory set to {SES_DIR}")
 
     def loadDefaultSettings(self):
         """Loads default settings from default file and updates the GUI elements accordingly."""
@@ -145,7 +166,7 @@ class SettingsGUI:
         """Callback to show another MM imaging state combo box."""
 
         # Get current number of MM imaging states
-        mm_count = sum(1 for i in range(1, 4) if dpg.get_value(self.menu.all_elements[f"set_is_mm{i}"]) != "")
+        mm_count = sum([1 for i in range(1, 4) if dpg.is_item_shown(self.menu.all_elements[f"set_is_mm{i}"])])
 
         # Show next combo box if available
         if mm_count < 3:
@@ -290,7 +311,7 @@ class SettingsGUI:
             "WG_distance_threshold": dpg.get_value(self.menu_lamella.all_elements["set_lam_distance"]),
             "WG_image_state": dpg.get_value(self.menu.all_elements["set_is_wg"]) if "Mag index:" not in dpg.get_value(self.menu.all_elements["set_is_wg"]) else dpg.get_value(self.menu.all_elements["set_is_wg"]).split(":")[0],
             "IM_image_state": dpg.get_value(self.menu.all_elements["set_is_im"]) if "Mag index:" not in dpg.get_value(self.menu.all_elements["set_is_im"]) else dpg.get_value(self.menu.all_elements["set_is_im"]).split(":")[0],
-            "MM_image_state": dpg.get_value(self.menu.all_elements["set_is_mm"]).split(",") if "Mag index:" not in dpg.get_value(self.menu.all_elements["set_is_mm"]) else dpg.get_value(self.menu.all_elements["set_is_mm"]).split(":")[0],
+            "MM_image_state": dpg.get_value(self.menu.all_elements["set_is_mm"]).split(",") if "Mag index:" not in dpg.get_value(self.menu.all_elements["set_is_mm"]) else [dpg.get_value(self.menu.all_elements["set_is_mm"]).split(":")[0]],
             "WG_wait_for_inspection": dpg.get_value(self.menu.all_elements["set_inspect_grid"]),
             "manual_selection": dpg.get_value(self.menu.all_elements["set_select_tgt"]),
             "MM_wait_for_inspection": dpg.get_value(self.menu.all_elements["set_inspect_tgt"]),
@@ -407,6 +428,7 @@ class SettingsGUI:
         """Sets up dearpygui registries and handlers."""
 
         # Create file dialogues
+        gui.fileNav("nav_session_dir", self.selectSessionDir, dir=True, default_path=SES_DIR)
         gui.fileNav("nav_settings_file", self.selectSettingsFile, extensions=[".ini"])
         gui.fileNav("nav_ext_dir", self.selectExtDir, dir=True)
 
@@ -442,11 +464,16 @@ class SettingsGUI:
                             with dpg.table_cell(tag="tblleft"):
                                 self.menu = Menu()
 
-                                # Automation level
-                                self.menu.newRow(tag="row_set", horizontal=False, locked=False)
-                                self.menu.addText(tag="set_header", value="Settings", color=gui.COLORS["heading"])
-                                self.menu.addButton(tag="set_load", label="Load settings", callback=lambda: dpg.show_item("nav_settings_file"), tooltip="Load settings from file.")
+                                self.menu.newRow(tag="row_header1", horizontal=False, locked=False)
+                                self.menu.addText(tag="set_header1", value="Settings", color=gui.COLORS["heading"])
 
+                                # Load settings file
+                                self.menu.newRow(tag="row_set", horizontal=True, locked=False)
+                                self.menu.addButton(tag="set_session", label="Change session dir", callback=lambda: dpg.show_item("nav_session_dir"), tooltip="In the session directory the settings will be saved and a new folder for each grid will be created.")
+                                self.menu.addButton(tag="set_load", label="Load settings", callback=lambda: dpg.show_item("nav_settings_file"), tooltip="Load old settings from file.")
+
+                                # Automation level
+                                self.menu.newRow(tag="row_header2", horizontal=False, locked=False)
                                 self.menu.addText(tag="set_header2", value="\nAutomation Level", color=gui.COLORS["heading"])
                                 self.menu.addCombo(tag="set_level", label="", value="Level 4", combo_list=["Level 1", "Level 2", "Level 3", "Level 4", "Level 5"], callback=self.changeLevel, width=80, tooltip="Automation level for the SPACEtomo run.\nLevel 1: Collect WG map (and find lamellae)\nLevel 2: Collect MM maps for each ROI\nLevel 3: Segment lamellae maps (if no manual selection)\nLevel 4: Setup targets manually or based on segmentation\nLevel 5: Start PACEtomo batch acquisition.")
 
@@ -457,13 +484,13 @@ class SettingsGUI:
                                     if SERIALEM_AVAILABLE and self.microscope:
                                         if i + 1 in self.microscope.autoloader.keys():
                                             enabled = True
-                                            tooltip = f"Grid {i+1} in autoloader: {self.microscope.autoloader[i + 1]}"
+                                            tooltip = f"Grid {i + 1} in autoloader: {self.microscope.autoloader[i + 1]}"
                                         else:
                                             enabled = False
-                                            tooltip = f"Grid {i+1} in autoloader not available."
+                                            tooltip = f"Grid {i + 1} in autoloader not available."
                                     else:
                                         enabled = True
-                                        tooltip = f"Grid {i+1} in autoloader (if available)."
+                                        tooltip = f"Grid {i + 1} in autoloader (if available)."
                                     self.menu.addCheckbox(tag=f"set_grid_{i + 1}", label=f"{str(i + 1).ljust(2)}", value=False, callback=None, tooltip=tooltip, enabled=enabled)
                                     if i == 5:
                                         self.menu.newRow(tag="row_grid2", horizontal=True, locked=False)
@@ -478,13 +505,14 @@ class SettingsGUI:
                                 self.menu.newRow(tag="row_set3", horizontal=False, locked=False)
                                 self.menu.addText(tag="set_imaging_header", value="Imaging states", color=gui.COLORS["heading"])
                                 if SERIALEM_AVAILABLE and self.imaging_states:
+                                    log(f"DEBUG: Imaging states found:\n{self.imaging_states}")
                                     # Imaging states
-                                    self.menu.addCombo(tag="set_is_wg", label="WG imaging state", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for whole grid montage maps. (Set up in SerialEM before running!)")
-                                    self.menu.addCombo(tag="set_is_im", label="IM imaging state", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for intermediate mag used for recentering. (Set up in SerialEM before running!)")
-                                    self.menu.addCombo(tag="set_is_mm", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)")
-                                    self.menu.addCombo(tag="set_is_mm1", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
-                                    self.menu.addCombo(tag="set_is_mm2", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
-                                    self.menu.addCombo(tag="set_is_mm3", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)})" for index, name, low_dose, camera, mag_index in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
+                                    self.menu.addCombo(tag="set_is_wg", label="WG imaging state", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for whole grid montage maps. (Set up in SerialEM before running!)")
+                                    self.menu.addCombo(tag="set_is_im", label="IM imaging state", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for intermediate mag used for recentering. (Set up in SerialEM before running!)")
+                                    self.menu.addCombo(tag="set_is_mm", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)")
+                                    self.menu.addCombo(tag="set_is_mm1", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
+                                    self.menu.addCombo(tag="set_is_mm2", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
+                                    self.menu.addCombo(tag="set_is_mm3", label="MM imaging state(s)", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose >= 0], callback=None, tooltip="Imaging state name or index for Low Dose Mode, this can be several imaging states to specify Record, View, ... (Set up in SerialEM before running!)", show=False)
                                     self.menu.addButton(tag="set_is_mm_add", label="+", callback=self.showMMCombo, tooltip="Add another MM imaging state for Low Dose Mode.", theme="small_btn_theme")
 
                                 else:
@@ -619,7 +647,7 @@ class SettingsGUI:
         next_update = time.time() + 1
         while dpg.is_dearpygui_running():
 
-            # Load defaults
+            # Load defaults once
             if not self.loaded_defaults:
                 self.loadDefaultSettings()
 
