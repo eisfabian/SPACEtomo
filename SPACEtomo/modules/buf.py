@@ -627,9 +627,8 @@ class Buffer:
             return
         finally:
             sem.EndTry()
-
-        if config.DEBUG:
-            self.rollBuffers() # AutoCorrPeakVectors puts CC in buffer A
+            if config.DEBUG:
+                self.rollBuffers() # AutoCorrPeakVectors puts CC in buffer A
 
         self.grid_vectors = np.array(spacing[1:5]).reshape((2, 2)) * self.pix_size
         log(f"DEBUG: Found grid vectors: {self.grid_vectors} [nm]")
