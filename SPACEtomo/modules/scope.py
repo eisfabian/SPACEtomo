@@ -515,6 +515,10 @@ class Microscope:
 
         for slot in range(1, 13):
             slot_status = sem.ReportSlotStatus(slot)
+            
+            if not isinstance(slot_status, (list, tuple)): # Make sure slot status is a list (it's a float if inventory was not run)
+                slot_status = [slot_status]
+                
             log(f"DEBUG: Slot status: {slot_status}")
             if slot_status[0] > 0:
                 if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
