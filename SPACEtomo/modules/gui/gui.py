@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
 # Revision:     v1.3
-# Last Change:  2025/03/14: added dense pattern icon
+# Last Change:  2025/08/24: finalized new target overlay draw function
+#               2025/03/14: added dense pattern icon
 #               2025/03/07: added more icons, added toggled button theme
 #               2024/12/20: added arrow icons for cursor
 #               2024/11/20: added a variety of icons, removed static tag from info box
@@ -24,6 +25,7 @@
 #               2024/04/26
 # ===================================================================
 
+import time
 import numpy as np
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -148,48 +150,72 @@ def makeLogo(radius=100, stroke=3, oversampling=2):
 
     return logo_dims
 
-def makeTargetOverlay(beam_diameter, cam_dims, ta_rotation_beam, ta_rotation_fov, color_beam="#ffd700", color_fov="#578abf", color_alpha=1, max_tilt=60 ):
-    """Generates target overlay textures."""
+def drawTargetOverlay(draw_list, center_coords, beam_diameter, cam_dims, ta_rotation_beam, ta_rotation_fov, color_beam="#ffd700", color_fov="#578abf", color_alpha=1, max_tilt=60):
+    """Draws target overlay using dpg.draw_list commands at specified position and scale."""
+    
+    # Convert hex colors to RGBA tuples for DearPyGui
+    def hex_to_rgba(hex_color, alpha=1.0):
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16) 
+        b = int(hex_color[4:6], 16)
+        return (r, g, b, int(255 * alpha))
 
-    downscale_texture = 4  # Downscale factor for texture size to save memory, needs to be adjusted in tgt_sel.py => showTargets
-    beam_diameter = beam_diameter / downscale_texture
-    cam_dims = np.array(cam_dims) / downscale_texture
-
-    # Create canvas with size of stretched beam diameter
-    overlay = np.zeros([int(beam_diameter), int(beam_diameter / np.cos(np.radians(max_tilt)))])
-    print(overlay.shape)
-    canvas = Image.fromarray(overlay).convert('RGB')
-    draw = ImageDraw.Draw(canvas)
-
-    # Draw beam
-    draw.ellipse((0, 0, overlay.shape[1] - 1, overlay.shape[0] - 1), outline=color_beam, width=int(20 / downscale_texture))
-
-    # Rotate tilt axis
-    canvas = canvas.rotate(-ta_rotation_fov, expand=True)
-
+    # Extract parameters
+    beam_height = beam_diameter / np.cos(np.radians(max_tilt))
+    beam_color = hex_to_rgba(color_beam, color_alpha)
+    fov_color = hex_to_rgba(color_fov, color_alpha)
+    thickness = 0.05 # Adjustable line thickness
+    
+    
+    # Helper function to rotate point around center
+    def rotate_point(px, py, cx, cy, angle_deg):
+        angle_rad = np.radians(angle_deg - 90)
+        cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+        dx, dy = px - cx, py - cy
+        rx = dx * cos_a - dy * sin_a + cx
+        ry = dx * sin_a + dy * cos_a + cy
+        return rx, ry
+    
+    # Draw beam ellipse (stretched by max_tilt)
+    beam_rx = beam_diameter / 2
+    beam_ry = beam_height / 2
+    
+    # Create ellipse points for beam
+    num_segments = 32
+    beam_points = []
+    for i in range(num_segments):
+        angle = 2 * np.pi * i / num_segments
+        px = center_coords[0] + beam_rx * np.cos(angle)
+        py = center_coords[1] + beam_ry * np.sin(angle)
+        # Rotate by tilt axis rotation for FOV
+        px, py = rotate_point(px, py, center_coords[0], center_coords[1], -ta_rotation_beam)
+        beam_points.append([px, py])
+    
+    # Draw beam outline
+    dpg.draw_polyline(beam_points, closed=True, color=beam_color, thickness=thickness, parent=draw_list)
+    
+    # Draw camera rectangle
+    cam_half_w = cam_dims[1] / 2
+    cam_half_h = cam_dims[0] / 2
+    
+    # Rectangle corners
+    rect_corners = [
+        (center_coords[0] - cam_half_w, center_coords[1] - cam_half_h),
+        (center_coords[0] + cam_half_w, center_coords[1] - cam_half_h),
+        (center_coords[0] + cam_half_w, center_coords[1] + cam_half_h),
+        (center_coords[0] - cam_half_w, center_coords[1] + cam_half_h)
+    ]
+    
+    # Rotate rectangle by FOV tilt axis, then by difference
+    total_rotation = - (ta_rotation_beam - ta_rotation_fov) + 90
+    rotated_corners = []
+    for px, py in rect_corners:
+        rx, ry = rotate_point(px, py, center_coords[0], center_coords[1], total_rotation)
+        rotated_corners.append([rx, ry])
+    
     # Draw camera outline
-    rect = ((canvas.width - cam_dims[1]) // 2, (canvas.height - cam_dims[0]) // 2, (canvas.width + cam_dims[1]) // 2, (canvas.height + cam_dims[0]) // 2)
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle(rect, outline=color_fov, width=int(20 / downscale_texture))
-
-    # Rotate by difference between view and rec tilt axis
-    canvas = canvas.rotate(-(ta_rotation_beam - ta_rotation_fov), expand=True)
-
-    # Convert to array
-    overlay = np.array(canvas).astype(float) / 255
-
-    # Make textures
-    overlay_dims = np.array(overlay.shape)[:2]
-    alpha = np.zeros(overlay.shape[:2])
-    alpha[np.sum(overlay, axis=-1) > 0] = 1
-    overlay_image = np.ravel(np.dstack([overlay, alpha * color_alpha]))
-
-    with dpg.texture_registry():
-        overlay_texture = dpg.add_static_texture(width=int(overlay_dims[1]), height=int(overlay_dims[0]), default_value=overlay_image)
-
-    print("Created texture...")
-
-    return overlay_texture, overlay_dims
+    dpg.draw_polyline(rotated_corners, closed=True, color=fov_color, thickness=thickness, parent=draw_list)
 
 def makeIconRotation(ccw=False):
     """Makes clockwise arrow icon."""

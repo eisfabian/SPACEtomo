@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/08
 # Revision:     v1.3
-# Last Change:  2025/03/07: added PlotPolygon
+# Last Change:  2025/08/24: added support for draw nodes
+#               2025/03/07: added PlotPolygon
 #               2025/01/30: added shifting of img series without replotting
 #               2024/11/18: moved all texture deletions after plot deletions
 #               2024/11/12: added annotations
@@ -34,6 +35,7 @@ class Plot:
         self.img = []
         self.boxes = []
         self.overlays = []
+        self.draw_nodes = []
         self.series = []
         self.drag_points = []
         self.annotations = []
@@ -101,6 +103,14 @@ class Plot:
         """Plots an image (meant for small overlays)."""
 
         self.overlays.append({"label": label, "tex": texture, "plot": dpg.add_image_series(texture, bounds_min=(bounds[0][0], bounds[1][0]), bounds_max=(bounds[0][1], bounds[1][1]), parent=self.x_axis)})
+
+    def addDrawNode(self, label):
+        """Adds a drawing node to the plot."""
+
+        node = dpg.add_draw_node(label=label, parent=self.plot)
+        self.draw_nodes.append({"label": label, "node": node})
+
+        return node
 
     def addCustomPlot(self, list, label, plot, theme=None):
         """Adds custom series to any list of self."""
@@ -184,6 +194,12 @@ class Plot:
 
         dpg.configure_item(self.overlays[id]["plot"], bounds_min=bounds_min, bounds_max=bounds_max) 
 
+    def shiftDrawNode(self, id, shift):
+        """Shifts draw node using DearPyGUIs draw node transformation."""
+
+        transform = dpg.create_translation_matrix(shift)
+        dpg.apply_transform(self.draw_nodes[id]["node"], transform)
+
     """Methods to find specific plot elements whose label contains a keyword."""
     def getImgByKeyword(self, keyword):
         return [item["label"] for item in self.img if keyword in item["label"]]
@@ -250,6 +266,18 @@ class Plot:
 
         self.overlays = remaining_list
 
+    def clearDrawNodes(self, labels=[], skip_labels=[]):
+        """Delete all or some draw nodes."""
+
+        remaining_list = []
+        for node in self.draw_nodes:
+            if (labels and node["label"] not in labels) or (skip_labels and node["label"] in skip_labels):     # Option for removing only certain series
+                remaining_list.append(node)
+                continue
+            if dpg.does_item_exist(node["node"]):
+                dpg.delete_item(node["node"])
+        self.draw_nodes = remaining_list
+
     def clearDragPoints(self, labels=[], skip_labels=[]):
         """Delete all or some drag points."""
 
@@ -281,6 +309,7 @@ class Plot:
         self.clearSeries()
         self.clearBoxes()
         self.clearOverlays()
+        self.clearDrawNodes()
         self.clearDragPoints()
         self.clearAnnotations()
         self.bounds = np.zeros((2, 2))
