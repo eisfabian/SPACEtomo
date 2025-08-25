@@ -32,6 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
+  "numpy>=2.0.0; python_version>='3.9'",
   "dearpygui>=1.10.0; python_version>='3.9'"
 ]
 predict = [
