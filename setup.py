@@ -46,7 +46,7 @@ setup(
     ],
     extras_require={
         "gui": [
-            "numpy>=2.0.0; python_version>='3.9'"
+            "numpy>=2.0.0; python_version>='3.9'",
             "dearpygui>=1.10.0; python_version>='3.9'",
             ],
         "predict": [
