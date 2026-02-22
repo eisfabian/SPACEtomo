@@ -112,6 +112,69 @@ def getImagingStates():
 
     return imaging_states
 
+def getLowDoseParams(area: str):
+    """Gets low dose area parameters from SerialEM."""
+
+    try:
+        sem.StartTry(1)
+        sem.GetLowDoseAreaParams(area, "ld_params")
+        ld_params = sem.GetVariable("ld_params")
+    except sem.SEMerror:
+        log(f"ERROR: Could not retrieve low dose parameters without switching to them! Consider updating SerialEM to the latest version to speed this up!")
+        return None
+
+    # LowDoseParameters:
+    # There are three sets of parameters, for TEM, EFTEM, and STEM.
+    #  1. low dose set number 0 to 4 for V F T R S, or negative of state number (numbered from 1)   3
+    #  2. mag index or negative of camera length index                                              25
+    #  3. spot size                                                                                 6
+    #  4. intensity                                                                                 0.119900
+    #  5. axis offset in microns                                                                    -0.000000
+    #  6. 0-2 for regular/EFTEM/STEM or 0 for state                                                 1 
+    #  7. filter slit in                                                                            1
+    #  8. filter slit width                                                                         20.000000
+    #  9. energy loss                                                                               0.000000
+    #  10. zero loss flag                                                                           0
+    #  11. beam X offset                                                                            0.000000
+    #  12. beam Y offset                                                                            0.000000
+    #  13. alpha on JEOL, -999 otherwise                                                            -999.000000
+    #  14. diffraction focus                                                                        -999.000000
+    #  15. beam tilt X                                                                              0.000000
+    #  16. beam tilt Y                                                                              0.000000
+    #  17. probe mode                                                                               0
+    #  18. dark field mode flag                                                                     0
+    #  19. dark field tilt X                                                                        0.000000
+    #  20. dark field tilt Y                                                                        0.000000
+    #  21. dose modulation percent (attenuation)                                                    100.000000
+
+    ld_areas = { "V": 0, "F": 1, "T": 2, "R": 3, "S": 4 }
+
+    param_dict = {
+        "low_dose_area": ld_areas.get(ld_params[0], ld_params[0]),
+        "mag_index": ld_params[1],
+        "spot_size": ld_params[2],
+        "intensity": ld_params[3],
+        "axis_offset_microns": ld_params[4],
+        "mode": ld_params[5],
+        "filter_slit_in": ld_params[6],
+        "filter_slit_width": ld_params[7],
+        "energy_loss": ld_params[8],
+        "zero_loss_flag": ld_params[9],
+        "beam_x_offset": ld_params[10],
+        "beam_y_offset": ld_params[11],
+        "alpha": ld_params[12],
+        "diffraction_focus": ld_params[13],
+        "beam_tilt_x": ld_params[14],
+        "beam_tilt_y": ld_params[15],
+        "probe_mode": ld_params[16],
+        "dark_field_mode_flag": ld_params[17],
+        "dark_field_tilt_x": ld_params[18],
+        "dark_field_tilt_y": ld_params[19],
+        "dose_modulation_percent": ld_params[20],
+    }
+
+    return param_dict
+
 def getSessionDir():
     """Sets up top level dir for SPACEtomo session."""
 
@@ -198,7 +261,7 @@ def prepareEnvironment(cur_dir, external_dir):
             import ultralytics
         except ModuleNotFoundError:
             log(f"ERROR: Packages for local processing could not be found. Please set up external processing!")
-            sem.exit()
+            sem.Exit()
         map_dir = cur_dir / "SPACE_maps"
         map_dir.mkdir(exist_ok=True)
     else:

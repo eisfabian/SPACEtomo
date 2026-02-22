@@ -65,6 +65,7 @@ class Microscope:
         # Set user settings
         sem.SetUserSetting("DriftProtection", 1)
         sem.SetUserSetting("ShiftToTiltAxis", 1)
+        sem.SetUserSetting("ShowStateNumbers", 1, 1)
 
         # Check autoloader
         self.loaded_grid = None
@@ -774,6 +775,28 @@ class ImagingParams:
     @dummy_skip
     @serialem_check
     def getViewParams(self, microscope: Microscope, final_attempt=False):
+
+        # TODO:
+        # - Check if GetLowDoseAreaParams area var command is available
+        # - Use GetLowDoseAreaParams to get all params in one go
+        # - Fallback to manual retrieval if command not available
+        """
+        ld_params = usem.getLowDoseParams("V")
+        if ld_params is not None:
+            self.cam_dims = microscope.camera_dims
+
+
+
+            matrices = microscope.getMatrices(ld_params["mag_index"])
+            self.s2ss_matrix = matrices["s2ss"]
+            self.view_c2ss_matrix = matrices["c2ss"]
+            self.view_ss2is_matrix = matrices["ss2is"]
+            self.view_ta_rotation = 90 - np.degrees(np.arctan(self.view_c2ss_matrix[0, 1] / self.view_c2ss_matrix[0, 0]))
+            self.view_rotM = np.array([[np.cos(np.radians(self.view_ta_rotation)), np.sin(np.radians(self.view_ta_rotation))], [-np.sin(np.radians(self.view_ta_rotation)), np.cos(np.radians(self.view_ta_rotation))]])
+            self.view_beam_diameter = microscope.beam_size
+
+            return
+        """
 
         if microscope.low_dose and microscope.low_dose_area == "V":
             self.cam_dims = microscope.camera_dims
