@@ -5,8 +5,9 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
-# Revision:     v1.3
-# Last Change:  2025/05/31: added search params
+# Revision:     v1.4
+# Last Change:  2026/02/22: changed aperture commands to also work with JEOL
+#               2025/05/31: added search params
 #               2025/02/19: added beam blanking
 #               2024/09/04: fixed autoloader check, fixed delay during imaging state change
 #               2024/09/02: moved MicroscopeDummy to dummy modules
@@ -107,7 +108,7 @@ class Microscope:
     def condenser_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize(1))
+            return int(sem.ReportApertureSize('C'))
         except sem.SEMerror:
             log(f"WARNING: Could not access C2 aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -118,7 +119,7 @@ class Microscope:
     def objective_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize(2))
+            return int(sem.ReportApertureSize('O'))
         except sem.SEMerror:
             log(f"WARNING: Could not access objective aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -486,7 +487,7 @@ class Microscope:
         
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(1, size)
+            sem.SetApertureSize('C', size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert C2 aperture. Please check if SerialEM has aperture control!")
         finally:
@@ -497,7 +498,7 @@ class Microscope:
 
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(2, size)
+            sem.SetApertureSize('O', size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert objective aperture. Please check if SerialEM has aperture control!")
         finally:
