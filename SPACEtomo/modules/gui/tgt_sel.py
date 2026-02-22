@@ -235,13 +235,13 @@ class TargetGUI:
         self.map_list = [seg.name.split("_seg.png")[0] for seg in seg_list if (seg.parent / (seg.name.split("_seg.png")[0] + ".png")).exists()]
 
         if self.map_list and not list_only:        # distinction necessary for creating map list before GUI is set up
+            # Get currently selected map from combo menu
+            selected_map = dpg.get_value(self.menu_left.all_elements["map"])
             # Update combo menu
             dpg.configure_item(self.menu_left.all_elements["map"], items=self.map_list, label=f"({len(self.map_list)} maps)")
-            # Set value to loaded map
-            if self.map_name:
-                dpg.set_value(self.menu_left.all_elements["map"], self.map_name)
-            else:
-                dpg.set_value(self.menu_left.all_elements["map"], self.map_list[0])
+            # Reselect previously selected map if still existing
+            if selected_map in self.map_list:
+                dpg.set_value(self.menu_left.all_elements["map"], selected_map)
 
         # Find selected targets per MM map
         self.map_list_tgtnum = []
