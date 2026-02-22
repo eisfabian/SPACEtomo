@@ -5,7 +5,7 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/23
-# Revision:     v1.3
+# Revision:     v1.4
 # Last Change:  2025/03/04: updated to make dummy run work again
 #               2024/12/23: added alignTo function
 #               2024/08/26: split from modules/buf.py
@@ -349,7 +349,7 @@ class BufferDummy:
 
         return nav_id
 
-    def addNavBoxes(self, boxes, labels=[], padding_factor=1):
+    def addNavBoxes(self, boxes, labels=[], padding_factor=1, label_prefix=None):
         """Adds polygons from boxes in image coords."""
 
         # Show buffer

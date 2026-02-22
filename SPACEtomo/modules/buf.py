@@ -5,8 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
-# Revision:     v1.3
-# Last Change:  2025/03/05: added findGrid
+# Revision:     v1.4
+# Last Change:  2026/02/22: added support for custom ROI names
 #               2025/03/04: added mdoc ingestion with file
 #               2025/01/17: fixed buffer from file
 #               2024/12/23: added alignTo function
@@ -412,8 +412,16 @@ class Buffer:
 
         return nav_id
 
-    def addNavBoxes(self, boxes: Boxes, labels=[], padding_factor=1):
-        """Adds polygons from boxes in image coords."""
+    def addNavBoxes(self, boxes: Boxes, labels=[], padding_factor=1, label_prefix=None):
+        """Adds polygons from boxes in image coords.
+        
+        Args:
+            boxes: Boxes object with bounding boxes
+            labels: Optional list of nav item labels (overrides label_prefix)
+            padding_factor: Scale factor for box padding
+            label_prefix: Prefix for auto-generated nav labels (e.g., "PP", "FP"). If None, uses box.label.
+                         Set this to ensure nav items are searchable by prefix in run.py
+        """
 
         # Show buffer
         self.show()
@@ -440,12 +448,16 @@ class Buffer:
             # Pad box
             box.scale(padding_factor)
 
-            # Choose label
-            label = ""
+            # Choose label for navigator item (must use prefix if specified to ensure searchability)
+            nav_label = ""
             if labels and b < len(labels):
-                label = labels[b]
+                nav_label = labels[b]
+            elif label_prefix is not None:
+                # Generate label with prefix for searchability (e.g., "PP1", "FP1")
+                nav_label = label_prefix + str(b + 1).zfill(2)
             elif box.label:
-                label = box.label
+                # Fall back to box label only if no prefix specified
+                nav_label = box.label
 
             # Add polygon
             if self.nav is not None:
@@ -459,10 +471,12 @@ class Buffer:
                 box_max = self.px2stage(box.xyxycc[2:4])
                 pts_x = [box_min[0], box_min[0], box_max[0], box_max[0], box_min[0]]
                 pts_y = [box_min[1], box_max[1], box_max[1], box_min[1], box_min[1]]
-                # Add nav item
-                nav_id = self.nav.newPolygon(pts_x, pts_y, stage_z, label=label, note=f"{label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)", color=config.WG_model_nav_colors[box.cat], update=False)
-                # Add confidence as UserValue1 for nav item
+                # Add nav item with nav_label (for searchability) and box.label (custom display label) in note
+                display_label = box.label if box.label else nav_label
+                nav_id = self.nav.newPolygon(pts_x, pts_y, stage_z, label=nav_label, note=f"{display_label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)", color=config.WG_model_nav_colors[box.cat], update=False)
+                # Add confidence as UserValue1 and custom label as UserValue2 for nav item
                 self.nav.items[nav_id].addEntry("UserValue1", box.prob)
+                self.nav.items[nav_id].addEntry("UserValue2", box.label)
             else:
                 # Add point via SerialEM
                 try:
@@ -470,9 +484,10 @@ class Buffer:
                     nav_id = int(sem.AddImagePosAsNavPoint(self.buf, box.center[0], box.center[1])) - 1
                     # Adjust nav item
                     sem.ChangeItemColor(nav_id + 1, config.WG_model_nav_colors[box.cat])
-                    if label:
-                        sem.ChangeItemNote(nav_id + 1, f"{label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)")
-                        sem.ChangeItemLabel(nav_id + 1, label)
+                    if nav_label:
+                        display_label = box.label if box.label else nav_label
+                        sem.ChangeItemNote(nav_id + 1, f"{display_label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)")
+                        sem.ChangeItemLabel(nav_id + 1, nav_label)
                     else:
                         sem.ChangeItemNote(nav_id + 1, f"{config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)")
                 except sem.SEMerror:
