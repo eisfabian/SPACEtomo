@@ -6,7 +6,9 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/02/22: changed aperture commands to also work with JEOL
+# Last Change:  2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
+#               2026/02/22: made checkAutoloader work with both Thermo and JEOL
+#               2026/02/22: changed aperture commands to also work with JEOL
 #               2025/05/31: added search params
 #               2025/02/19: added beam blanking
 #               2024/09/04: fixed autoloader check, fixed delay during imaging state change
@@ -71,6 +73,7 @@ class Microscope:
         # Check autoloader
         self.loaded_grid = None
         self.autoloader = {}
+        self.autoloader_type = None  # 'jeol' or 'thermo'
         #self.checkAutoloader()
 
     ### Properties
@@ -504,7 +507,7 @@ class Microscope:
         finally:
             sem.EndTry()
 
-    def openValves(open=True):
+    def openValves(self, open=True):
         if open:
             # Open column valves
             sem.SetColumnOrGunValve(1)
@@ -513,36 +516,106 @@ class Microscope:
             sem.SetColumnOrGunValve(0)
 
     def checkAutoloader(self):
-        """Checks autoloader slots."""
+        """Checks autoloader slots for both Thermo/FEI and JEOL microscopes."""
 
-        for slot in range(1, 13):
-            slot_status = sem.ReportSlotStatus(slot)
-            
-            if not isinstance(slot_status, (list, tuple)): # Make sure slot status is a list (it's a float if inventory was not run)
-                slot_status = [slot_status]
+        # Try Thermo/FEI approach first (faster, doesn't require inventory)
+        is_jeol = False
+        try:
+            sem.StartTry(1)
+            test_status = sem.ReportSlotStatus(1)
+            # Thermo/FEI returns 1-2 values, JEOL returns 6 values or -1
+            if isinstance(test_status, (list, tuple)) and len(test_status) >= 6:
+                # This is JEOL format, need to run inventory
+                is_jeol = True
+            elif test_status == -1:
+                # Could be JEOL without inventory, try running it
+                is_jeol = True
+        except sem.SEMerror:
+            # If error, might be JEOL needing inventory
+            is_jeol = True
+        finally:
+            sem.EndTry()
+
+        if is_jeol:
+            # Run JEOL inventory (this can be slow)
+            log(f"DEBUG: Detected JEOL autoloader, running inventory check...")
+            try:
+                sem.StartTry(1)
+                sem.LongOperation("In")
+                self.autoloader_type = 'jeol'
+            except sem.SEMerror:
+                log(f"WARNING: Could not run autoloader inventory. Falling back to Thermo/FEI approach.")
+                is_jeol = False
+                self.autoloader_type = 'thermo'
+            finally:
+                sem.EndTry()
+        else:
+            log(f"DEBUG: Detected Thermo/FEI autoloader.")
+            self.autoloader_type = 'thermo'
+
+        if is_jeol:
+            # JEOL autoloader: use array index approach (1-based)
+            index = 1  # JEOL inventory array indices start at 1
+            max_attempts = 20  # Safety limit for array iteration
+            while index < max_attempts:
+                try:
+                    slot_status = sem.ReportSlotStatus(index)
+                except sem.SEMerror:
+                    slot_status = -1
                 
-            log(f"DEBUG: Slot status: {slot_status}")
-            if slot_status[0] > 0:
-                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
-                    self.autoloader[slot] = slot_status[-1]
-                else:
-                    log(f"WARNING: Please enter names for occupied slots in the Autoloader panel!")
-                    log(f"NOTE: Naming grid in slot {slot} to G{str(slot).zfill(2)} internally.")
-                    self.autoloader[slot] = "G" + str(slot).zfill(2)
-            else:
-                if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
-                    log(f"DEBUG: Slot label: {slot_status[-1]}, Type: {type(slot_status[-1])}, Len: {len(slot_status[-1])}")
-                    self.autoloader[slot] = slot_status[-1]
-                    if not self.loaded_grid:
-                        on_stage = sem.YesNoBox("\n".join(["GRID LOADED?", "", f"Is the grid from slot {slot} [{self.autoloader[slot]}] currently on the stage?"]))
-                        if on_stage:
-                            self.loaded_grid = slot
-                        else:
-                            log(f"WARNING: Please only enter names for occupied slots in the Autoloader panel!")
+                # JEOL returns -1 if index out of range
+                if slot_status == -1:
+                    break
+                
+                # JEOL returns: cartridge_id, location, slot_num, cart_type, angle, name
+                if isinstance(slot_status, (list, tuple)) and len(slot_status) >= 6:
+                    cartridge_id, location, slot_num, cart_type, angle, grid_name = slot_status[:6]
+                    # location: 0=unknown, 1=magazine, 2=storage, 3=stage
+                    if grid_name and grid_name != "!NONAME!" and grid_name != "\\":
+                        self.autoloader[index] = grid_name
+                        log(f"DEBUG: JEOL inventory index {index}, cart_id {cartridge_id}: {grid_name} (location={location}, slot={slot_num})")
+                        if location == 3 and not self.loaded_grid:  # On stage
+                            on_stage = sem.YesNoBox("\n".join(["GRID LOADED?", "", f"Is grid [{grid_name}] currently on the stage?"]))
+                            if on_stage:
+                                self.loaded_grid = index
+                    else:
+                        # Generate default name if not provided
+                        default_name = f"Grid{cartridge_id:03d}"
+                        self.autoloader[index] = default_name
+                        log(f"DEBUG: JEOL inventory index {index}, cart_id {cartridge_id}: {default_name} (no user name provided)")
+                
+                index += 1
+        else:
+            # Thermo/FEI autoloader: use slot number approach
+            for slot in range(1, 13):
+                slot_status = sem.ReportSlotStatus(slot)
+                
+                if not isinstance(slot_status, (list, tuple)):
+                    slot_status = [slot_status]
+                
+                log(f"DEBUG: Slot {slot} status: {slot_status}")
+                # Thermo/FEI: slot_status[0] is -1 (error), 0 (empty), or 1 (occupied)
+                if slot_status[0] > 0:  # Occupied
+                    if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
+                        self.autoloader[slot] = slot_status[-1]
+                    else:
+                        log(f"WARNING: Please enter names for occupied slots in the Autoloader panel!")
+                        log(f"NOTE: Naming grid in slot {slot} to G{str(slot).zfill(2)} internally.")
+                        self.autoloader[slot] = "G" + str(slot).zfill(2)
+                elif slot_status[0] == 0:  # Empty but has name info available
+                    if len(slot_status) > 1 and isinstance(slot_status[-1], str) and slot_status[-1] != "!NONAME!" and slot_status[-1] != "\\":
+                        log(f"DEBUG: Slot label: {slot_status[-1]}, Type: {type(slot_status[-1])}, Len: {len(slot_status[-1])}")
+                        self.autoloader[slot] = slot_status[-1]
+                        if not self.loaded_grid:
+                            on_stage = sem.YesNoBox("\n".join(["GRID LOADED?", "", f"Is the grid from slot {slot} [{self.autoloader[slot]}] currently on the stage?"]))
+                            if on_stage:
+                                self.loaded_grid = slot
+                            else:
+                                log(f"WARNING: Please only enter names for occupied slots in the Autoloader panel!")
 
         # Deal with missing cassette and grid on stage
         if not len(self.autoloader):
-            log(f"WARNING: Autoloader cassete is not present or empty!")
+            log(f"WARNING: Autoloader cassette is not present or empty!")
             if not self.loaded_grid:
                 on_stage = sem.YesNoBox("\n".join(["GRID LOADED?", "", f"Is the desired grid currently on the stage?"]))
                 if on_stage:
@@ -567,6 +640,15 @@ class Microscope:
             self.loaded_grid = grid_slot
         else:
             log(f"Grid [{self.autoloader[grid_slot]}] is already loaded.")
+
+    def unloadGrid(self):
+        """Unloads the current grid from the stage."""
+        if self.loaded_grid:
+            log(f"Unloading grid [{self.autoloader[self.loaded_grid]}]...")
+            sem.UnloadCartridge()
+            self.loaded_grid = None
+        else:
+            log(f"WARNING: No grid currently loaded.")
 
     def realignGrid(self, nav: Navigator, map_id: int):
         """Realigns grid to previously taken whole grid map and transforms nav items accordingly."""
