@@ -26,17 +26,21 @@
 # ===================================================================
 
 import time
+from turtle import width
 import numpy as np
 from pathlib import Path
 from PIL import Image, ImageDraw
 Image.MAX_IMAGE_PIXELS = None
 from skimage import transform, draw
 import dearpygui.dearpygui as dpg
+from importlib.resources import files
+
+IMG_DIR = files('SPACEtomo.img')
 
 ### GUI CONFIG ###
 
 COLORS = {
-    "heading":  (255, 200, 0, 255), # yellow
+    "heading":  (255, 200, 0, 255), # yellow #ffc800
     "error":    (200, 0, 0, 255),   # red
     "geo":      (238, 136, 68, 255),# orange
     "subtle":   (255, 255, 255, 64) # white, semi-transparent
@@ -83,6 +87,26 @@ def configureGlobalTheme():
             dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (32, 32, 32, 255), category=dpg.mvThemeCat_Core)
             dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (64, 64, 64, 255), category=dpg.mvThemeCat_Core)
 
+        with dpg.theme_component(dpg.mvSliderInt):
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, COLORS["heading"], category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, COLORS["heading"], category=dpg.mvThemeCat_Core)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 5, category=dpg.mvThemeCat_Core)
+
+        with dpg.theme_component(dpg.mvCollapsingHeader):
+            dpg.add_theme_color(dpg.mvThemeCol_Header, (0, 0, 0, 0), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (0, 0, 0, 0), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (0, 0, 0, 0), category=dpg.mvThemeCat_Core)
+
+        # Tabs (REPLACE WITH TAB BUTTON THEME)
+        #with dpg.theme_component(dpg.mvTab):
+        #    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 100, 20)
+
+        #    dpg.add_theme_color(dpg.mvThemeCol_Tab, (120, 120, 200))
+        #    dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (150, 150, 230))
+        #    dpg.add_theme_color(dpg.mvThemeCol_TabActive, (180, 180, 255))
+        #    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 10)
+        #    #dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
+
 
     # Theme for large buttons
     with dpg.theme(tag="large_btn_theme"):
@@ -110,6 +134,38 @@ def configureGlobalTheme():
             dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["heading"])
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (np.array(COLORS["heading"]) * 0.9).astype(int).tolist())
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (np.array(COLORS["heading"]) * 0.8).astype(int).tolist())
+
+    # Theme for invisible buttons
+    with dpg.theme(tag="invisible_btn_theme"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255, 255), category=dpg.mvThemeCat_Core)  
+
+    # Theme for tab buttons
+    with dpg.theme(tag="tab_bar_theme"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["subtle"])
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 2)
+        with dpg.theme_component(dpg.mvGroup):
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0) # No spacing between tab buttons
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (200, 0, 0, 255)) # No background for tab bar
+    with dpg.theme(tag="tab_btn_sel_theme"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["heading"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["heading"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["heading"])
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 2)
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (0, 0, 0))
+
 
 ### END CONFIG ###
 
@@ -805,6 +861,37 @@ def makeIconSave():
 
     with dpg.texture_registry():
         dpg.add_static_texture(width=dims[1], height=dims[0], default_value=tex_img, tag=tag)
+
+    return tag
+
+def makeIconFromImg(image_name, color=None):
+    """Makes folder icon."""
+    tag = f"icon_{image_name}_{color}"
+
+    if dpg.does_item_exist(tag):
+        return tag
+
+    width, height, channels, data = dpg.load_image(str(IMG_DIR / f"{image_name}.png"))
+    
+    # Change color
+    if color:
+        # Convert the data (a flat list) to numpy array for easy manipulation
+        img = np.frombuffer(data, dtype=np.float32)  # DPG uses float32 in range 0–1
+        img = img.reshape((height, width, 4))
+
+        # Define a tint color (R,G,B,A) — values 0–1
+        tint = np.array([int(color[1:3], 16) / 255, 
+                         int(color[3:5], 16) / 255, 
+                         int(color[5:7], 16) / 255, 1.0])
+
+        # Multiply RGB channels by the tint
+        img[..., :3] *= tint[:3]
+
+        # Convert back to a flat list
+        data = img.flatten().tolist()
+
+    with dpg.texture_registry():
+        dpg.add_static_texture(width=width, height=height, default_value=data, tag=tag)
 
     return tag
 

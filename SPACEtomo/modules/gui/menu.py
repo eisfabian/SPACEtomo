@@ -18,8 +18,8 @@ import dearpygui.dearpygui as dpg
 class Menu:
     """Class to structure menu tables and control locking and unlocking of rows."""
 
-    def __init__(self, outline=True) -> None:
-        self.makeTable(outline=outline)
+    def __init__(self, outline=True, indent=0) -> None:
+        self.makeTable(outline=outline, indent=indent)
         self.rows = {}                  # visible rows
         self.rows_locked = {}           # conditionally hidden rows
         self.rows_adv = {}              # advanced rows
@@ -31,16 +31,22 @@ class Menu:
 
         self.show_advanced = False      # toggle advance elements/rows
 
-    def makeTable(self, outline=True):
+        self.indent = indent
+
+    def makeTable(self, outline=True, indent=0):
         """Creates base table."""
 
         with dpg.table(header_row=False, width=-1, borders_outerH=outline) as self.table:
+            if indent > 0:
+                dpg.add_table_column(init_width_or_weight=indent, width_fixed=True)
             dpg.add_table_column()
 
     def newRow(self, tag, horizontal=False, separator=False, locked=True, advanced=False):
         """Creates new row and necessary containers for elements."""
 
         with dpg.table_row(parent=self.table):
+            if self.indent > 0:
+                dpg.add_table_cell()
             with dpg.table_cell():
                 self.last_group = dpg.add_group(horizontal=horizontal, show=not locked and not advanced)
                 if separator:
@@ -98,10 +104,46 @@ class Menu:
                 if tag in self.separators:
                     dpg.hide_item(self.separators[tag])
 
-    def addText(self, tag, value="", color=(255, 255, 255, 255), tooltip="", advanced=False, **kwargs):
+    def addText(self, tag, value="", color=(255, 255, 255, 255), tooltip="", show=True, advanced=False, **kwargs):
         """Adds a text element to the current row."""
+    
+        element = dpg.add_text(default_value=value, color=color, show=show and not advanced, parent=self.last_group, **kwargs)
+        # Add to element list
+        if advanced:
+            self.elements_adv[tag] = element
+        else:
+            self.elements[tag] = element
 
-        element = dpg.add_text(default_value=value, color=color, show=not advanced, parent=self.last_group, **kwargs)
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addImageText(self, tag, texture, text=None, image_size=[32, 32], color=(255, 255, 255, 255), tooltip="", advanced=False, **kwargs):
+        """Adds a text element to the current row."""
+    
+        padding = 5
+        width, height = image_size[0] + 2 * padding + len(text) * 7 + padding, image_size[1] + 2 * padding
+
+        # Colors for different states
+
+
+        with dpg.group(horizontal=False, show=not advanced, parent=self.last_group) as element:
+            with dpg.drawlist(width=width, height=height):
+                # Draw the image
+                dpg.draw_image(texture, (padding, (height - image_size[1]) // 2), (padding + image_size[0], (height - image_size[1]) // 2 + image_size[1]))
+
+                dpg.draw_text(
+                    (image_size[0] + 2 * padding, (height - 13) // 2),              # position
+                    text,              # text
+                    size=13,
+                    color=color
+                )
+
         # Add to element list
         if advanced:
             self.elements_adv[tag] = element
@@ -153,6 +195,80 @@ class Menu:
 
         if theme and dpg.does_item_exist(theme):
             dpg.bind_item_theme(element, theme)
+
+        if tooltip:
+            with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
+                dpg.add_text(tooltip)
+            # Add to element list
+            if advanced:
+                self.elements_adv[tag + "_tooltip"] = tooltip_id
+            else:
+                self.elements[tag + "_tooltip"] = tooltip_id
+
+    def addImageTextButton(self, tag, texture, text=None, image_size=[32, 32], callback=None, user_data=None, tooltip="", disabled=False, primary=False, show=True, advanced=False, **kwargs):
+        """Adds a hybrid image text button to the current row."""
+
+        padding = 5
+        width, height = image_size[0] + 2 * padding + len(text) * 7 + padding, image_size[1] + 2 * padding
+
+        # Colors for different states
+
+
+        with dpg.group(horizontal=False, show=show and not advanced, parent=self.last_group) as element:
+            with dpg.drawlist(width=width, height=height):
+
+                # Draw button background
+                dpg.draw_rectangle(
+                    (0, 0),
+                    (width, height),
+                    tag=f"{element}_overlay",
+                    fill=(255, 255, 255, 0) if not primary else (255, 200, 0, 255),        # no fill
+                    color=(255, 255, 255, 40),      # light border
+                    rounding=5,
+                    show=True
+                )
+
+                # Draw hover overlay
+                dpg.draw_rectangle(
+                    (0, 0),
+                    (width, height),
+                    tag=f"{element}_hover_overlay",
+                    fill=(255, 255, 255, 40),       # light transparent white
+                    color=(255, 255, 255, 0),       # no border
+                    rounding=5,
+                    show=False
+                )
+
+                # Draw the image
+                dpg.draw_image(texture, (padding, (height - image_size[1]) // 2), (padding + image_size[0], (height - image_size[1]) // 2 + image_size[1]))
+
+                # Draw the text
+                if not primary:
+                    text_color = (255, 255, 255, 255) if not disabled else (255, 255, 255, 100)
+                else:
+                    text_color = (40, 40, 40, 255) if not disabled else (255, 255, 255, 100)
+                dpg.draw_text(
+                    (image_size[0] + 2 * padding, (height - 13) // 2),              # position
+                    text,              # text
+                    size=13,
+                    color=text_color
+                )
+        
+        if not disabled:
+            with dpg.item_handler_registry() as handler:
+                dpg.add_item_clicked_handler(callback=callback, user_data=user_data)
+                dpg.add_item_hover_handler(callback=lambda: dpg.show_item(f"{element}_hover_overlay"))
+
+            with dpg.handler_registry():
+                dpg.add_mouse_move_handler(callback=lambda: dpg.hide_item(f"{element}_hover_overlay"))
+
+            dpg.bind_item_handler_registry(element, handler)
+
+        # Add to element list
+        if advanced:
+            self.elements_adv[tag] = element
+        else:
+            self.elements[tag] = element
 
         if tooltip:
             with dpg.tooltip(element, delay=0.5, show=show and not advanced) as tooltip_id:
@@ -242,7 +358,7 @@ class Menu:
         if isinstance(value, float):
             element = dpg.add_slider_float(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         elif isinstance(value, int):
-            element = dpg.add_slider_int(default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
+            element = dpg.add_slider_int(vertical=False, default_value=value, min_value=value_range[0], max_value=value_range[1], width=width, label=label, callback=callback, show=show and not advanced, parent=self.last_group, **kwargs)
         else:
             raise ValueError("No slider available for this type!")
         # Add to element list
