@@ -28,6 +28,7 @@ setup(
     maintainer="Fabian Eisenstein",
     maintainer_email="spacetomo.help@gmail.com",
     packages=find_packages(), # Automatically find packages
+    package_data={"SPACEtomo": ["img/*.png"]},
     install_requires=[
         "matplotlib>=3.5; python_version>='3.9'",
         "mrcfile>=1.5.0; python_version>='3.9'",

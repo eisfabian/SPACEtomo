@@ -60,3 +60,6 @@ version = {attr = "SPACEtomo.__version__"}
 
 [tool.setuptools.packages]
 find = {}
+
+[tool.setuptools.package-data]
+SPACEtomo = ["img/*.png"]
