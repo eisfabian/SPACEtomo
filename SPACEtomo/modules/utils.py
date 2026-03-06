@@ -3,7 +3,8 @@
 # Purpose:      Functions for utilities needed by other packages and scripts.
 # Author:       Fabian Eisenstein
 # Created:      2024/07/18
-# Last Change:  2025/02/12: added alignCC
+# Last Change:  2026/03/06: fixed castString function for Windows, added file check functions
+#               2025/02/12: added alignCC
 #               2025/01/22: added Path handling to json, added breakpoint
 #               2024/09/24: updated log to handle debug and line breaks
 #               2024/09/04: converted settings to configparser
@@ -25,6 +26,7 @@ import concurrent.futures
 from pathlib import Path
 from functools import wraps
 from configparser import ConfigParser
+from typing import Optional, Dict
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None           # removes limit for large images
 
@@ -284,30 +286,39 @@ def castString(string):
 
     if not string:
         return string
+        
     string = string.strip().strip("'\"")
+    
     try:
-        var = int(string)
+        return int(string)
     except ValueError:
         try:
-             var = float(string)
+            return float(string)
         except ValueError:
-            if Path(string).exists():
-                var = Path(string)
-            else:
-                if string.startswith("[") and string.endswith("]"):
-                    var = [castString(val) for val in string.strip("[]").split(",")]
-                    if len(var) == 1 and var[0] == "":
-                        var = []
-                else:
-                    if string.lower() == "true" or string.lower() == "yes" or string.lower() == "y" or string.lower() == "on":
-                        var = True
-                    elif string.lower() == "false" or string.lower() == "no" or string.lower() == "n" or string.lower() == "off":
-                        var = False
-                    elif string.lower() == "none":
-                        var = None
-                    else:
-                        var = string
-    return var
+            # Handle Windows-specific OSError for illegal characters like ':'
+            try:
+                if Path(string).exists():
+                    return Path(string)
+            except (OSError, ValueError):
+                pass 
+
+            # Handle list structures
+            if string.startswith("[") and string.endswith("]"):
+                var = [castString(val) for val in string.strip("[]").split(",")]
+                if len(var) == 1 and var[0] == "":
+                    return []
+                return var
+            
+            # Handle Booleans and None
+            s_lower = string.lower()
+            if s_lower in ("true", "yes", "y", "on"):
+                return True
+            elif s_lower in ("false", "no", "n", "off"):
+                return False
+            elif s_lower == "none":
+                return None
+            
+            return string
 
 def waitForFile(file, message, function_call=None, msg_interval=60):
     """Stalls run until file was created."""
@@ -664,3 +675,87 @@ def alignCC(img1: np.ndarray, img2: np.ndarray):
     log(f"DEBUG: Found shift of {shift_x, shift_y} with confidence {correlation_score}.")
 
     return np.array((shift_x, shift_y)), correlation_score
+
+
+# =================================================================
+# Step completion checking - file-based indicators for recovery
+# =================================================================
+
+def hasWGMap(grid_dir: Path, map_dir: Path, grid_name: str) -> bool:
+    """Check if WG map collection has been completed."""
+
+    wg_file = map_dir / (grid_name + "_wg.png")
+    return wg_file.exists()
+
+def hasIMAlign(grid_dir: Path, map_dir: Path, grid_name: str) -> bool:
+    """Check if IM alignment has been completed (indicated by presence of FP entries)."""
+
+    # This is harder to check without accessing nav file, so we check for IM images
+    im_images = list(map_dir.glob(grid_name + "_IM*_wg.png"))
+    return len(im_images) > 0
+
+def hasMMMap(grid_dir: Path, map_dir: Path, grid_name: str) -> bool:
+    """Check if MM map collection has been started/completed."""
+
+    mm_maps = list(grid_dir.glob("*.mrc"))
+    mm_from_map_dir = list(map_dir.glob("*.mrc"))
+    return len(mm_maps) > 0 or len(mm_from_map_dir) > 0
+
+def hasTargetSetup(grid_dir: Path, map_dir: Path, grid_name: str) -> bool:
+    """Check if target setup has been started/completed."""
+
+    tgt_files = list(grid_dir.glob("*_tgts.txt"))
+    return len(tgt_files) > 0
+
+def hasAcquisitionSetup(grid_dir: Path, map_dir: Path, grid_name: str) -> bool:
+    """Check if acquisition setup script has been called."""
+
+    # This would be indicated by presence of Acquire entries in nav
+    # For now, return False as this is final step
+    return False
+
+def findMMMapName(map_name: str, map_dir: Path) -> Optional[Path]:
+    """
+    Find the main MM map file for a given map.
+    
+    Args:
+        map_name: Base name of the map (without extension)
+        map_dir: Directory containing maps
+    
+    Returns:
+        Path to the map file or None if not found
+    """
+
+    mrc_file = map_dir / (map_name + ".mrc")
+    if mrc_file.exists():
+        return mrc_file
+    
+    png_file = map_dir / (map_name + ".png")
+    if png_file.exists():
+        return png_file
+    
+    return None
+
+def findTargetFiles(area_name: str, grid_dir: Path) -> list:
+    """
+    Find all target files for a given area.
+    
+    Returns:
+        List of target file paths
+    """
+
+    return list(grid_dir.glob(f"{area_name}_tgts.txt"))
+
+def findInspectionStatus(map_name: str, map_dir: Path) -> Dict[str, bool]:
+    """
+    Check inspection status indicators for a map.
+    
+    Returns:
+        Dictionary with inspection type -> status mapping
+    """
+
+    return {
+        "wg_inspected": (map_dir / f"{map_name}_wg_inspected.txt").exists(),
+        "mm_inspected": (map_dir / f"{map_name}_inspected.txt").exists(),
+        "points_ready": len(list(map_dir.glob(f"{map_name}_points*.json"))) > 0
+    }
