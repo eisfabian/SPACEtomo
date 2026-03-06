@@ -561,10 +561,10 @@ class Microscope:
                 try:
                     slot_status = sem.ReportSlotStatus(index)
                 except sem.SEMerror:
-                    slot_status = -1
+                    slot_status = [-1]
                 
                 # JEOL returns -1 if index out of range
-                if slot_status == -1:
+                if slot_status[0] == -1:
                     break
                 
                 # JEOL returns: cartridge_id, location, slot_num, cart_type, angle, name
@@ -575,9 +575,8 @@ class Microscope:
                         self.autoloader[index] = grid_name
                         log(f"DEBUG: JEOL inventory index {index}, cart_id {cartridge_id}: {grid_name} (location={location}, slot={slot_num})")
                         if location == 3 and not self.loaded_grid:  # On stage
-                            on_stage = sem.YesNoBox("\n".join(["GRID LOADED?", "", f"Is grid [{grid_name}] currently on the stage?"]))
-                            if on_stage:
-                                self.loaded_grid = index
+                            log(f"DEBUG: Grid [{grid_name}] in inventory index {index} is currently on the stage.")
+                            self.loaded_grid = index
                     else:
                         # Generate default name if not provided
                         default_name = f"Grid{cartridge_id:03d}"
