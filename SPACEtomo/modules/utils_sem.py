@@ -51,6 +51,9 @@ def checkImagingStates(states=[], low_dose_expected=[]):
 
     log(f"Checking imaging states...")
 
+    # Set state numbers in case it wasn't done already
+    sem.SetUserSetting("ShowStateNumbers", 1, 1)
+
     if len(states) != len(low_dose_expected):
         log("ERROR: Number of imaging states and low dose requirements do not match!")
         sem.Exit()
@@ -58,6 +61,7 @@ def checkImagingStates(states=[], low_dose_expected=[]):
     mag_list = []
     for s, state in enumerate(states):
         state_props = sem.ImagingStateProperties(str(state))
+        log(f"DEBUG: Imaging state {state} properties: {state_props}")
 
         if isinstance(state_props, (list, tuple)):
             error, index, low_dose, camera, mag_index, name = state_props
@@ -78,7 +82,7 @@ def checkImagingStates(states=[], low_dose_expected=[]):
         if low_dose_expected[s] and low_dose < 0:
             log(f"ERROR: Imaging state {state} is not a low dose state but should be!")
             sem.Exit()
-        elif not low_dose_expected[s] and low_dose > 0:
+        elif not low_dose_expected[s] and low_dose >= 0:
             log(f"ERROR: Imaging state {state} is a low dose state but should not be!")
             sem.Exit()
 
