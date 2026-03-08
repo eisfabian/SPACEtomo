@@ -348,6 +348,7 @@ class NavItem:
 
         template.entries["Regis"] = ["1"]                                       # Registration
         template.entries["MapBinning"] = ["1"]                                  # Map binning
+        template.entries["MontBinning"] = ["1"]                                 # Montage binning
         template.entries["MapMagInd"] = ["0"]                                   # Map mag index
         template.entries["MapCamera"] = ["1"]                                   # Camera number
         template.entries["MapScaleMat"] = ["1.0", "0.0", "0.0", "1.0"]          # Stage to pixel scale matrix for drawing (might be off when taken from montage template)
@@ -377,6 +378,10 @@ class Navigator:
         self.getSelectedItem()
 
         self.setMapIDCounter()
+
+        # Register callback so mock SaveNavigator writes nav state to disk
+        if SERIALEM and hasattr(sem, 'RegisterNavSaveCallback'):
+            sem.RegisterNavSaveCallback(lambda path: self.writeToFile(Path(path) if path else self.file))
 
     def readFromFile(self):
         """Reads lines from navigator text file and delegates to NavItem to read item blocks."""

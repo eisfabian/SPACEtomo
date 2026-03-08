@@ -56,6 +56,7 @@ class BufferDummy:
         self.grid_vectors = None    # Grid vectors [optional]
 
         self.pix_size = None
+        self.mdoc = {}
 
         # Load nav map
         if nav_id is not None and self.nav:
@@ -205,6 +206,30 @@ class BufferDummy:
         """Opens file and reads section."""
 
         log(f"DEBUG: Reading {file_path}[{section}] into buffer {self.buf}...")
+
+        file_path = Path(file_path)
+        if file_path.exists():
+            with mrcfile.open(file_path) as mrc:
+                self.pix_size = mrc.voxel_size.x / 10  # nm/px
+                self.shape = np.array([mrc.header.nx, mrc.header.ny], dtype=int)
+                self.binning = 1
+                self.dose = 0
+                self.magnification = None
+                if mrc.data.ndim == 3 and section < mrc.data.shape[0]:
+                    self.img = np.flip(mrc.data[section], axis=0)
+                elif mrc.data.ndim == 2:
+                    self.img = np.flip(mrc.data, axis=0)
+
+            # Get mdoc metadata if available
+            from SPACEtomo.modules import utils
+            mdoc_path = file_path.with_suffix(".mrc.mdoc")
+            if mdoc_path.exists():
+                self.mdoc = utils.parseMdoc(mdoc_path)[1][section]
+                self.binning = self.mdoc.get("Binning", 1)
+                self.dose = self.mdoc.get("ExposureDose", 0)
+                self.magnification = self.mdoc.get("Magnification", None)
+                self.timestamp = self.mdoc.get("TimeStamp", None)
+
         log(f"#DUMMY: Loaded image into buffer {self.buf}!")
         
     def saveImg(self, file_path, target_pix_size=None, save_meta_data=True, overwrite=False):

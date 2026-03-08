@@ -78,6 +78,7 @@ class MicroscopeDummy:
 
         # Properties
         self.ta_offset = 0.0
+        self.use_coma_vs_is = False
 
         # Check autoloader
         self.loaded_grid = None
@@ -328,10 +329,17 @@ class MicroscopeDummy:
         self.dummy_state["exposure_time"] = time
         log(f"#DUMMY: Exposure time was changed to {self.dummy_state['exposure_time']}!")
 
-    def moveStage(self, xyz):
+    def moveStage(self, xyz, relative=False):
         """Moves stage to x, y, z."""
-        
-        self.dummy_state["stage"] = np.array(xyz)
+
+        xyz = np.array(xyz, dtype=float)
+        if len(xyz) == 2:
+            xyz = np.append(xyz, 0.0 if relative else self.dummy_state["stage"][2])
+
+        if relative:
+            self.dummy_state["stage"] += xyz
+        else:
+            self.dummy_state["stage"] = xyz
         log(f"#DUMMY: Stage was moved to {self.stage}!")
 
     def tiltStage(self, tilt, backlash=True):
@@ -356,11 +364,11 @@ class MicroscopeDummy:
         if self.dummy_state["imaging_state"] == self.imaging_params.WG_image_state:
             # Generate LM image
             img_array = self.dummyImageWG()
-            pix_size = self.imaging_params.WG_pix_size
+            pix_size = self.imaging_params.WG_pix_size or 400.0
         elif self.dummy_state['imaging_state'] == self.imaging_params.IM_image_state:
             # Generate IM image
             img_array = self.dummyImageIM()
-            pix_size = self.imaging_params.IM_pix_size
+            pix_size = self.imaging_params.IM_pix_size or 10.0
         elif self.dummy_state["imaging_state"] == self.imaging_params.MM_image_state or self.dummy_state["imaging_state"] in self.imaging_params.MM_image_state:
             if self.low_dose_area == "V" or view:
                 # Generate View image
@@ -440,9 +448,11 @@ class MicroscopeDummy:
         for state in target_state:
             self.dummy_state["imaging_state"] = state
             if state == self.imaging_params.WG_image_state:
-                self.dummy_state["magnification"] = 12323 / self.imaging_params.WG_pix_size
+                wg_pix = self.imaging_params.WG_pix_size if self.imaging_params.WG_pix_size else 400.0
+                self.dummy_state["magnification"] = 12323 / wg_pix
             elif state == self.imaging_params.IM_image_state:
-                self.dummy_state["magnification"] = 12323 / self.imaging_params.IM_pix_size
+                im_pix = getattr(self.imaging_params, "IM_pix_size", None) or 10.0
+                self.dummy_state["magnification"] = 12323 / im_pix
             elif state in self.imaging_params.MM_image_state:
                 if self.low_dose_area == "V":
                     self.dummy_state["magnification"] = 12323 / self.imaging_params.view_pix_size
@@ -490,7 +500,7 @@ class MicroscopeDummy:
         self.dummy_state["objective_aperture"] = size
         log(f"#DUMMY: Inserted objective aperture with size {size}!")
 
-    def openValves(open=True):
+    def openValves(self, open=True):
         if open:
             # Open column valves
             log(f"#DUMMY: Opened column valves!")
@@ -506,6 +516,14 @@ class MicroscopeDummy:
 
         log(f"#DUMMY: Autoloader was checked!")
 
+
+    def unloadGrid(self):
+        """Unloads the current grid from the stage."""
+        if self.loaded_grid:
+            log(f"#DUMMY: Unloaded grid {self.autoloader[self.loaded_grid]}!")
+            self.loaded_grid = None
+        else:
+            log(f"WARNING: No grid currently loaded.")
 
     def loadGrid(self, grid_slot):
 
@@ -525,6 +543,33 @@ class MicroscopeDummy:
         log(f"WARNING: Grid was realigned to previously collected whole grid map. Targets selected previously might still be subject to residual shifts. Please check the realign to item procedure before starting data collection.")
 
     ### Complex actions
+
+    def collectViewBeamTiltPair(self, beam_tilt_mrad, tilt_x: int=1, tilt_y: int=0, file_path=None):
+        """Collects pair of View images with +/- beam tilt in mrad."""
+
+        if isinstance(beam_tilt_mrad, (float, int)):
+            applied_beam_tilt = beam_tilt_mrad * np.array([tilt_x, tilt_y]) / np.linalg.norm(np.array([tilt_x, tilt_y]))
+        elif isinstance(beam_tilt_mrad, (list, tuple, np.ndarray)):
+            applied_beam_tilt = np.array(beam_tilt_mrad)
+        else:
+            log(f"ERROR: Beam tilt value not recognized!")
+            return None, None
+
+        # Generate two dummy images
+        img1 = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32)
+        img2 = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32)
+
+        if file_path:
+            from SPACEtomo.modules.utils import writeMrc
+            writeMrc(file_path, np.stack([img1, img2], axis=0), self.imaging_params.view_pix_size or 1.0)
+
+        BufferDummy.last_dummy_image = img1
+        buf1 = BufferDummy("A", img=img1)
+        BufferDummy.last_dummy_image = img2
+        buf2 = BufferDummy("A", img=img2)
+
+        log(f"#DUMMY: Collected beam tilt pair with {beam_tilt_mrad} mrad!")
+        return buf1, buf2
 
     def collectFullMontage(self, imaging_params, model, overlap):
         """Collects full grid montage."""
@@ -765,7 +810,7 @@ class MicroscopeDummy:
 
     def dummyImageIM(self):
         # Get proper pix size
-        pix_size = self.imaging_params.IM_pix_size
+        pix_size = self.imaging_params.IM_pix_size or 10.0
 
         # Define lamella dims
         lamella_dims = np.array([15, 25]) / pix_size * 1000 # width, height in pixels
@@ -787,11 +832,17 @@ class MicroscopeDummy:
         if abs(self.imaging_params.view_ta_rotation) < 45:
             lamella_img = lamella_img.T
 
+        # Crop lamella image if it's larger than map
+        if lamella_img.shape[0] > map_img.shape[0]:
+            lamella_img = lamella_img[:map_img.shape[0], :]
+        if lamella_img.shape[1] > map_img.shape[1]:
+            lamella_img = lamella_img[:, :map_img.shape[1]]
+
         # Add lamellae at random coords
         random_coords = np.random.rand(1, 2)
         for coords in random_coords:
-            x = int(coords[0] * (map_img.shape[0] - lamella_img.shape[0]))
-            y = int(coords[1] * (map_img.shape[1] - lamella_img.shape[1]))
+            x = int(coords[0] * max(0, map_img.shape[0] - lamella_img.shape[0]))
+            y = int(coords[1] * max(0, map_img.shape[1] - lamella_img.shape[1]))
             map_img[x: x + lamella_img.shape[0], y: y + lamella_img.shape[1]] = lamella_img
 
         # Add 25% noise
