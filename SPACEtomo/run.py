@@ -88,7 +88,6 @@ if config.DUMMY:    # Shadow classes with dummy classes
     log(f"WARNING: Running SPACEtomo in DUMMY mode! Run SPACEconfig dummy command to toggle it off!")
     from SPACEtomo.modules.dummy.scope import MicroscopeDummy as Microscope
     from SPACEtomo.modules.dummy.buf import BufferDummy as Buffer
-    import SPACEtomo.modules.dummy.utils_sem as usem
 
 ### Run on import: Connect to SerialEM, get session directory
 
