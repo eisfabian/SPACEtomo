@@ -58,6 +58,12 @@ Issues = "https://github.com/eisfabian/SPACEtomo/issues"
 [tool.setuptools.dynamic]
 version = {attr = "SPACEtomo.__version__"}
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that take >1 minute (YOLO inference on CPU)",
+]
+testpaths = ["tests"]
+
 [tool.setuptools.packages]
 find = {}
 
