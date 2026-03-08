@@ -154,7 +154,7 @@ class Lamella:
             mask[self.segmentation == self.model.categories[name]] = 1
 
         # Save mask as binary image
-        mask_img = Image.fromarray(mask, mode="1")
+        mask_img = Image.fromarray(mask.astype(bool))
         mask_img.save(os.path.join(self.out_dir, self.map_name + "_mask_" + class_names[0] + ".png"))
 
         return mask

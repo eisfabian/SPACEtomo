@@ -87,7 +87,7 @@ class WGModel:
                 results = self.model.predict(crop, device=device)                                         # YOLO inference
                 
                 if len(results[0].boxes) > 0:
-                    bbox = np.array(results[0].boxes.xyxy.to("cpu"))
+                    bbox = results[0].boxes.xyxy.to("cpu").numpy()
 
                     # Subtract tile coords and/or padding from coords and make sure coords go not out of image bounds
                     bbox[:, 0] = np.clip(bbox[:, 0] + y - padding[1] // 2, 0, image.shape[1])
@@ -95,8 +95,8 @@ class WGModel:
                     bbox[:, 1] = np.clip(bbox[:, 1] + x - padding[0] // 2, 0, image.shape[0])
                     bbox[:, 3] = np.clip(bbox[:, 3] + x - padding[0] // 2, 0, image.shape[0])
                     
-                    cat = np.reshape(results[0].boxes.cls.to("cpu"), (bbox.shape[0], 1))
-                    conf = np.reshape(results[0].boxes.conf.to("cpu"), (bbox.shape[0], 1))
+                    cat = results[0].boxes.cls.to("cpu").numpy().reshape(bbox.shape[0], 1)
+                    conf = results[0].boxes.conf.to("cpu").numpy().reshape(bbox.shape[0], 1)
 
                     bbox = np.hstack([bbox, cat, conf])
 

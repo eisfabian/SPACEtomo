@@ -408,6 +408,8 @@ class TargetArea:
             self.points = area["points"]
         if "ld_areas" in area and np.any(area["ld_areas"]):
             self.ld_areas = area["ld_areas"]
+        elif np.any(area["points"]):
+            self.ld_areas = np.array(["R"] * len(self.points))
         if np.any(area["scores"]):
             self.scores = area["scores"]
         if np.any(area["geo_points"]):
