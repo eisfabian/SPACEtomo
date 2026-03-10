@@ -8,22 +8,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+# Install mock serialem at import time (before pytest collects test modules),
+# so that any module-level `import serialem` in tested code sees the mock.
 from SPACEtomo.modules.dummy import install_mock_serialem
+install_mock_serialem()
 
-
-@pytest.fixture(scope="session", autouse=True)
-def mock_serialem():
-    """Install mock serialem module once for the entire test session."""
-    install_mock_serialem()
-
-    import SPACEtomo.config as config
-    config.DUMMY = True
-
-    yield
-
-    # Reset mock state
-    import serialem as sem
-    sem.reset_mock_state()
+import SPACEtomo.config as config
+config.DUMMY = True
 
 
 @pytest.fixture()
