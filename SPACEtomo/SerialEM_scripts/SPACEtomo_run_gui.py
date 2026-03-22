@@ -22,26 +22,35 @@ try:
 except ModuleNotFoundError:
     print("WARNING: Trying to run SerialEM externally!")
 
-import sys
-try:
-    import dearpygui.dearpygui as dpg
-except:
-    print("ERROR: DearPyGUI module not installed! If you cannot install it, please run the GUI from an external machine.")
-    sys.exit()
+import json
+from pathlib import Path
 
-from SPACEtomo.modules.gui.set import SettingsGUI
 import SPACEtomo.modules.utils as utils
 import SPACEtomo.modules.utils_sem as usem
+from SPACEtomo.modules.scope import Microscope
 
 # Check if session dir has been chosen previously or ask for it
 SES_DIR = usem.getSessionDir()
 
-# Run GUI
+# Fetch microscope data for GUI
+utils.log("Fetching microscope data...")
+
+# Save autoloader data
+microscope = Microscope()
+microscope.checkAutoloader()
+autoloader_file = Path(SES_DIR) / "autoloader.json"
+with open(autoloader_file, "w") as f:
+    json.dump(microscope.autoloader, f)
+
+# Save imaging states
+imaging_states = usem.getImagingStates()
+imaging_states_file = Path(SES_DIR) / "imaging_states.json"
+with open(imaging_states_file, "w") as f:
+    json.dump(imaging_states, f)
+
+# Run GUI as subprocess
 utils.log("Starting SPACEtomo GUI...")
-dpg.create_context()
-settings_gui = SettingsGUI()
-settings_gui.show()
-dpg.destroy_context()
+utils.guiProcess("settings", str(SES_DIR), blocking=True, extra_args=["--run_mode"])
 
 from SPACEtomo.run import main
 main()
