@@ -595,7 +595,7 @@ def timeoutCall(function, timeout=5, retries=3):
                 time.sleep(1)
     raise concurrent.futures.TimeoutError(f"Call to {function.__name__} timed out {retries} times!")
 
-def guiProcess(gui_type, file_path="", auto_close=False):
+def guiProcess(gui_type, file_path="", auto_close=False, blocking=False, extra_args=None):
     """Starts new process to call GUI."""
 
     file_path = str(file_path)
@@ -603,14 +603,20 @@ def guiProcess(gui_type, file_path="", auto_close=False):
     args = [gui_type, file_path]
     if auto_close:
         args.append("--auto_close")
+    if extra_args:
+        args.extend(extra_args)
 
     log(f"DEBUG: GUI args: {args}")
 
-    DETACHED_PROCESS = 0x00000008 # From here: https://stackoverflow.com/questions/89228/calling-an-external-command-in-python#2251026
-    try:
-        subprocess.Popen([sys.executable, Path(__file__).parent.parent / "GUI.py", *args], creationflags=DETACHED_PROCESS)
-    except ValueError:      # Creationflags only supported on Windows
-        subprocess.Popen([sys.executable, Path(__file__).parent.parent / "GUI.py", *args])
+    cmd = [sys.executable, Path(__file__).parent.parent / "GUI.py", *args]
+    if blocking:
+        subprocess.run(cmd)
+    else:
+        DETACHED_PROCESS = 0x00000008 # From here: https://stackoverflow.com/questions/89228/calling-an-external-command-in-python#2251026
+        try:
+            subprocess.Popen(cmd, creationflags=DETACHED_PROCESS)
+        except ValueError:      # Creationflags only supported on Windows
+            subprocess.Popen(cmd)
 
 def rmDir(dir_path):
     """Deletes directory."""
