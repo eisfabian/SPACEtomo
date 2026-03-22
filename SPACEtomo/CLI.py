@@ -43,9 +43,9 @@ try:
 except ModuleNotFoundError:
     SERIALEM = False
 
-def show(gui, path=""):
+def show(gui, path="", **kwargs):
     dpg.create_context()
-    main = gui(path)
+    main = gui(path, **kwargs)
     main.show()
     dpg.destroy_context()
     
@@ -69,6 +69,9 @@ def main():
         gui = TargetGUI
     elif "lamella" in args.task.lower() or "roi" in args.task.lower() or "region" in args.task.lower() or "grid" in args.task.lower():
         gui = GridGUI
+    elif "setting" in args.task.lower():
+        from SPACEtomo.modules.gui.set import SettingsGUI
+        gui = SettingsGUI
     elif args.task.lower() == "run":
         if SERIALEM:
             from SPACEtomo import run
