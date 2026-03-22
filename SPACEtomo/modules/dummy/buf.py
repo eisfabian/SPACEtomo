@@ -407,6 +407,8 @@ class BufferDummy:
             label = ""
             if labels and b < len(labels):
                 label = labels[b]
+            elif label_prefix is not None:
+                label = label_prefix + str(b + 1).zfill(2)
             elif box.label:
                 label = box.label
 
@@ -421,8 +423,9 @@ class BufferDummy:
             #nav_id = self.nav.newPoint([*stage_coords, 0], box.label, "Dummy polygon")
             nav_id = self.nav.newPolygon(pts_x, pts_y, stage_z, label=label, note=f"{label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)", color=config.WG_model_nav_colors[box.cat], update=False)
 
-            # Add confidence as UserValue1 for nav item
+            # Add confidence as UserValue1 and custom label as UserValue2 for nav item
             self.nav.items[nav_id].addEntry("UserValue1", box.prob)
+            self.nav.items[nav_id].addEntry("UserValue2", box.label)
             
             log(f"DEBUG: Added new polygon [{label}]")
 
@@ -440,16 +443,19 @@ class BufferDummy:
             # Adjust nav item
             self.nav.items[nav_id].entries["Color"] = [str(config.WG_model_nav_colors[box.cat])]
 
-            # Choose label
-            label = ""
+            # Override nav label if specified (for searchability)
+            nav_label = ""
             if labels and b < len(labels):
-                label = labels[b]
+                nav_label = labels[b]
+            elif label_prefix is not None:
+                nav_label = label_prefix + str(b + 1).zfill(2)
             elif box.label:
-                label = box.label
-            
-            if label:
-                self.nav.items[nav_id].label = label
-                self.nav.items[nav_id].note = f"{label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
+                nav_label = box.label
+
+            if nav_label:
+                display_label = box.label if box.label else nav_label
+                self.nav.items[nav_id].label = nav_label
+                self.nav.items[nav_id].note = f"{display_label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
             else:
                 self.nav.items[nav_id].note = f"{config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
 
