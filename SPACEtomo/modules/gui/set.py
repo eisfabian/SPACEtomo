@@ -14,23 +14,9 @@
 import os
 os.environ["__GLVND_DISALLOW_PATCHING"] = "1"           # helps to minimize Segmentation fault crashes on Linux when deleting textures
 
-# SerialEM import
+import json
 import sys
 import SPACEtomo.config as config
-sys.path.insert(len(sys.path), config.SERIALEM_PYTHON_PATH)
-try:
-    import serialem as sem
-    SERIALEM_AVAILABLE = True
-
-    # Connect to SEM
-    import SPACEtomo.modules.utils_sem as usem
-    usem.connectSerialEM(config.SERIALEM_IP, config.SERIALEM_PORT)
-    SES_DIR = usem.getSessionDir()  # Get current session directory from SerialEM
-except ModuleNotFoundError:
-    print("DEBUG: SerialEM module not found! Continuing without.")
-    SERIALEM_AVAILABLE = False
-    SES_DIR = ""
-
 
 import time
 from pathlib import Path
@@ -50,10 +36,6 @@ from SPACEtomo.modules.gui.info import InfoBoxManager, InfoBox, StatusLine
 from SPACEtomo.modules import utils
 from SPACEtomo.modules.utils import log
 from SPACEtomo.modules.ext import MMModel
-
-if SERIALEM_AVAILABLE:
-    from SPACEtomo.modules.scope import Microscope
-    import SPACEtomo.modules.utils_sem as usem
 
 import faulthandler
 faulthandler.enable()
@@ -260,7 +242,7 @@ class SettingsGUI:
                 self.menu_lamella.hide()
 
         # Update imaging states
-        if SERIALEM_AVAILABLE and self.imaging_states:
+        if self.imaging_states:
             for imaging_state in self.imaging_states:
                 if "WG_image_state" in settings and settings["WG_image_state"] == imaging_state[0] or settings["WG_image_state"] == imaging_state[1]:
                     wg_image_state = imaging_state
@@ -552,8 +534,11 @@ class SettingsGUI:
             self.menu_run.hideElements(["start_run", "start_run_primary"])
             
 
-    def __init__(self) -> None:
+    def __init__(self, path="", run_mode=False) -> None:
         log("\n########################################\nRunning SPACEtomo Settings GUI\n########################################\n")
+
+        self.session_dir = Path(path) if path else Path("")
+        self.run_mode = run_mode
 
         # Keep list of popup blocking windows
         self.blocking_windows = []
@@ -563,24 +548,28 @@ class SettingsGUI:
 
         self.configureHandlers()
         self.configureThemes()
-        
+
         # Initialise globals
         self.menu = None
         self.menu_lamella = None
         self.menu_target = None
         self.status = None
-        self.microscope = None
         self.imaging_states = None
 
         self.model = MMModel()
 
-        if SERIALEM_AVAILABLE:
-            # Get autoloader slots from microscope
-            self.microscope = Microscope()
-            self.microscope.checkAutoloader()
+        # Load autoloader data from JSON if available
+        self.autoloader = {}
+        autoloader_file = self.session_dir / "autoloader.json"
+        if autoloader_file.exists():
+            with open(autoloader_file) as f:
+                self.autoloader = {int(k): v for k, v in json.load(f).items()}
 
-            # Get imaging states from microscope
-            self.imaging_states = usem.getImagingStates()
+        # Load imaging states from JSON if available
+        imaging_states_file = self.session_dir / "imaging_states.json"
+        if imaging_states_file.exists():
+            with open(imaging_states_file) as f:
+                self.imaging_states = [tuple(s) for s in json.load(f)]
 
         self.current_tab = 1                        # Current selected tab
 
@@ -591,7 +580,7 @@ class SettingsGUI:
         """Sets up dearpygui registries and handlers."""
 
         # Create file dialogues
-        gui.fileNav("nav_session_dir", self.selectSessionDir, dir=True, default_path=SES_DIR)
+        gui.fileNav("nav_session_dir", self.selectSessionDir, dir=True, default_path=str(self.session_dir))
         gui.fileNav("nav_settings_file", self.selectSettingsFile, extensions=[".ini"])
         gui.fileNav("nav_ext_dir", self.selectExtDir, dir=True)
 
@@ -680,10 +669,10 @@ class SettingsGUI:
                                 self.menu.addText(tag="set_grid_header", value="Grids", color=gui.COLORS["heading"])
                                 self.menu.newRow(tag="row_grid", horizontal=True, locked=False)
                                 for i in range(12):
-                                    if SERIALEM_AVAILABLE and self.microscope:
-                                        if i + 1 in self.microscope.autoloader.keys():
+                                    if self.autoloader:
+                                        if i + 1 in self.autoloader.keys():
                                             enabled = True
-                                            tooltip = f"Grid {i + 1} in autoloader: {self.microscope.autoloader[i + 1]}"
+                                            tooltip = f"Grid {i + 1} in autoloader: {self.autoloader[i + 1]}"
                                         else:
                                             enabled = False
                                             tooltip = f"Grid {i + 1} in autoloader not available."
@@ -703,7 +692,7 @@ class SettingsGUI:
 
                                 self.menu.newRow(tag="row_set3", horizontal=False, locked=False)
                                 self.menu.addText(tag="set_imaging_header", value="Imaging states", color=gui.COLORS["heading"])
-                                if SERIALEM_AVAILABLE and self.imaging_states:
+                                if self.imaging_states:
                                     log(f"DEBUG: Imaging states found:\n{self.imaging_states}")
                                     # Imaging states
                                     self.menu.addCombo(tag="set_is_wg", label="WG imaging state", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for whole grid montage maps. (Set up in SerialEM before running!)")
@@ -743,7 +732,7 @@ class SettingsGUI:
 
                                 self.menu.newRow(tag="row_save", horizontal=False, locked=False)
                                 self.menu.addButton(tag="set_save", label="Save settings", callback=self.saveSettings, tooltip="Save current settings to file.")
-                                self.menu.addButton(tag="set_run", label="Run SPACEtomo", callback=self.startRun, tooltip="Start the SPACEtomo run with the current settings.", theme="large_btn_theme", show=SERIALEM_AVAILABLE)
+                                self.menu.addButton(tag="set_run", label="Run SPACEtomo", callback=self.startRun, tooltip="Start the SPACEtomo run with the current settings.", theme="large_btn_theme", show=self.run_mode)
 
 
                                 self.status = StatusLine()
@@ -851,10 +840,10 @@ class SettingsGUI:
 
                                 self.menu1.newRow(tag="row_grid", horizontal=True, locked=False)
                                 for i in range(12):
-                                    if SERIALEM_AVAILABLE and self.microscope:
-                                        if i + 1 in self.microscope.autoloader.keys():
+                                    if self.autoloader:
+                                        if i + 1 in self.autoloader.keys():
                                             enabled = True
-                                            tooltip = f"Grid {i + 1} in autoloader: {self.microscope.autoloader[i + 1]}"
+                                            tooltip = f"Grid {i + 1} in autoloader: {self.autoloader[i + 1]}"
                                         else:
                                             enabled = False
                                             tooltip = f"Grid {i + 1} in autoloader not available."
@@ -909,7 +898,7 @@ class SettingsGUI:
                                 self.menu2.newRow(tag="row_header1", horizontal=False, locked=False)
                                 self.menu2.addImageText(tag="set_header1", texture=gui.makeIconFromImg("aperture"), text="Imaging conditions", color=gui.COLORS["heading"])
                                 #self.menu2.addText(tag="set_header1", value="Imaging conditions\n\n", color=gui.COLORS["heading"])
-                                if SERIALEM_AVAILABLE and self.imaging_states:
+                                if self.imaging_states:
                                     log(f"DEBUG: Imaging states found:\n{self.imaging_states}")
                                     # Imaging states
                                     self.menu2.addCombo(tag="set_is_wg", label="LM imaging state for WG maps", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for whole grid montage maps. (Set up in SerialEM before running!)")
@@ -960,7 +949,7 @@ class SettingsGUI:
                                 self.menu3.newRow(tag="row_set3", horizontal=False, locked=False)
                                 self.menu3.addImageText(tag="set_header1", texture=gui.makeIconFromImg("aperture"), text="Imaging conditions", color=gui.COLORS["heading"])
                                 #self.menu3.addText(tag="set_imaging_header", value="Imaging states\n\n", color=gui.COLORS["heading"])
-                                if SERIALEM_AVAILABLE and self.imaging_states:
+                                if self.imaging_states:
                                     log(f"DEBUG: Imaging states found:\n{self.imaging_states}")
                                     # Imaging states
                                     self.menu3.addCombo(tag="set_is_im", label="Intermediate Mag [IM] imaging state for realignment", combo_list=[f"{int(index)}: {name} (Mag index: {int(mag_index)}, Pixel size: {pixel_size})" for index, name, low_dose, camera, mag_index, pixel_size in self.imaging_states if low_dose < 0], callback=None, tooltip="Imaging state name or index for intermediate mag used for recentering. (Set up in SerialEM before running!)")
