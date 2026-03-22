@@ -33,38 +33,46 @@ from pathlib import Path
 from SPACEtomo.modules.gui.lam_sel import GridGUI
 from SPACEtomo.modules.gui.tgt_sel import TargetGUI
 
-def run_process(gui, path="", auto_close=False):
+def run_process(gui, path="", **kwargs):
     dpg.create_context()
-    main = gui(path, auto_close=auto_close)
+    main = gui(path, **kwargs)
     main.show()
     dpg.destroy_context()
-    
+
 def main():
     # Process arguments
     parser = argparse.ArgumentParser(description="Calls GUI to inspect whole grid maps and select regions of interest.")
-    parser.add_argument("gui", type=str, default="targets", help="Name of GUI to be opened. Options: targets, grid")
-    parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map [.png].")
+    parser.add_argument("gui", type=str, default="targets", help="Name of GUI to be opened. Options: targets, grid, settings")
+    parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map [.png] or session directory.")
     parser.add_argument("--auto_close", action="store_true", help="Auto-close GUI after inspection.")
+    parser.add_argument("--run_mode", action="store_true", help="Show Run SPACEtomo button (for launching from SerialEM).")
     args = parser.parse_args()
 
     # Get GUI
-    if "target" in args.gui.lower():
+    kwargs = {}
+    if "setting" in args.gui.lower():
+        from SPACEtomo.modules.gui.set import SettingsGUI
+        gui = SettingsGUI
+        kwargs["run_mode"] = args.run_mode
+    elif "target" in args.gui.lower():
         gui = TargetGUI
+        kwargs["auto_close"] = args.auto_close
     elif "lamella" in args.gui.lower() or "roi" in args.gui.lower() or "region" in args.gui.lower() or args.gui.lower() == "grid":
         gui = GridGUI
+        kwargs["auto_close"] = args.auto_close
     else:
         raise ValueError(f"No GUI found with name {args.gui}!")
 
     # Check map file
     map_file = ""
-    if args.map_file != "": 
+    if args.map_file != "":
         map_file = Path(args.map_file)
         if not map_file.exists():
             map_file = ""
-            log("WARNING: Map file does not exist! Attempting to open GUI without map...")
+            log("WARNING: Path does not exist! Attempting to open GUI without path...")
 
     # Run GUI
-    run_process(gui, map_file, args.auto_close)
+    run_process(gui, map_file, **kwargs)
     
 
 if __name__ == "__main__":
