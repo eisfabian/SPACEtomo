@@ -558,7 +558,8 @@ class Lamella:
                     # Get the respective point scores
                     point_scores = np.array(self.point_scores)[cluster]
                     point_scores = np.insert(point_scores, 0, 0)
-                    self.targets.append({"points": points, "scores": point_scores, "geo_points": []})
+                    ld_areas = np.array(["R"] * len(points))
+                    self.targets.append({"points": points, "scores": point_scores, "geo_points": [], "ld_areas": ld_areas})
                     log("Successfully added additional tracking target.")
                 else:                
                     closest_middle_ids = np.argsort(np.linalg.norm(points - middle_point, axis=1))
@@ -578,7 +579,8 @@ class Lamella:
                     point_scores = np.array(self.point_scores)[cluster]
                     point_scores = np.concatenate([[point_scores[closest_middle_ids[min_ice]]], np.delete(point_scores, closest_middle_ids[min_ice], 0)])
 
-                    self.targets.append({"points": points, "scores": point_scores, "geo_points": []})
+                    ld_areas = np.array(["R"] * len(points))
+                    self.targets.append({"points": points, "scores": point_scores, "geo_points": [], "ld_areas": ld_areas})
                     log("Successfully chose tracking target.")
 
 
