@@ -36,6 +36,27 @@ from importlib.resources import files
 
 IMG_DIR = files('SPACEtomo.img')
 
+### THREAD-SAFE DEFERRED ACTION QUEUE ###
+# DPG item creation/deletion from callback threads races with the renderer
+# and causes segfaults or "incompatible parent" errors. Use defer_to_main()
+# from callback threads, and call flush_deferred() in the render loop.
+
+_deferred_actions: list = []
+
+def defer_to_main(fn, *args, **kwargs):
+    """Schedule a callable to run on the main/render thread."""
+    _deferred_actions.append((fn, args, kwargs))
+
+def flush_deferred():
+    """Execute queued actions. Must be called from the render thread.
+    Only processes actions queued before this call, so that actions
+    appended during execution (e.g. _adjust_position from show) are
+    deferred to the next frame — allowing a render in between."""
+    n = len(_deferred_actions)
+    for _ in range(n):
+        fn, args, kwargs = _deferred_actions.pop(0)
+        fn(*args, **kwargs)
+
 ### GUI CONFIG ###
 
 COLORS = {

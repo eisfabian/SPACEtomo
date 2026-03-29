@@ -1461,4 +1461,6 @@ class GridGUI:
                 # Check if info box needs to be shown
                 InfoBoxManager.unblock()
 
+            gui.flush_deferred()
+
             dpg.render_dearpygui_frame()

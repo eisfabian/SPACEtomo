@@ -22,6 +22,8 @@ import dearpygui.dearpygui as dpg
 
 from SPACEtomo.modules.gui.gui import COLORS
 
+from SPACEtomo.modules.gui.gui import defer_to_main
+
 class Plot:
     """Class to hold and organize all plotted objects."""
 
@@ -223,9 +225,8 @@ class Plot:
                 continue
             if dpg.does_item_exist(img["plot"]): 
                 dpg.delete_item(img["plot"])
-            if delete_textures and dpg.does_item_exist(img["tex"]): 
-                dpg.delete_item(img["tex"])
-                dpg.split_frame(delay=10)                   # helps to reduce Segmentation fault crashes
+            if delete_textures and dpg.does_item_exist(img["tex"]):
+                defer_to_main(dpg.delete_item, img["tex"])
 
         self.img = remaining_list
 

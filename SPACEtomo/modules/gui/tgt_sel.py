@@ -2289,4 +2289,7 @@ class TargetGUI:
                     elif self.preloaded_data is None and not self.status.status:
                         self.preloaded_data = self.executor.submit(self.preloadMap)
 
+            # Flush deferred actions on the render thread (avoids Metal segfaults and DPG parent errors)
+            gui.flush_deferred()
+
             dpg.render_dearpygui_frame()

@@ -16,7 +16,7 @@ import time
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
-from SPACEtomo.modules.gui.gui import COLORS
+from SPACEtomo.modules.gui.gui import COLORS, defer_to_main
 from SPACEtomo.modules.utils import log
 
 class InfoBoxManager:
@@ -31,11 +31,11 @@ class InfoBoxManager:
         log(f"DEBUG: Pushing InfoBox to stack: {infobox.title}")
         cls._stack.append(infobox)
         if len(cls._stack) == 1:
-            cls.show()
+            defer_to_main(cls.show)
 
     @classmethod
     def unblock(cls):
-        """Determines if InfoBox stack should be unblocked."""
+        """Determines if InfoBox stack should be unblocked. Must be called from render thread."""
 
         if not dpg.does_item_exist("show_infobox_handler"):
             if cls._stack and (not dpg.does_item_exist(cls._stack[0].infobox) or not dpg.is_item_shown(cls._stack[0].infobox)):
@@ -43,13 +43,13 @@ class InfoBoxManager:
                     if dpg.is_item_focused(window):
                         return
 
-                # Setting up show InfoBox on mouse move
+                # Setting up show InfoBox on mouse move (defer to main thread for thread safety)
                 with dpg.handler_registry(tag="show_infobox_handler"):
-                    dpg.add_mouse_move_handler(callback=cls.show)
+                    dpg.add_mouse_move_handler(callback=lambda: defer_to_main(cls.show))
 
     @classmethod
     def show(cls):
-        """Shows the current InfoBox in the stack, if any."""
+        """Shows the current InfoBox in the stack, if any. Defers to main thread if needed."""
 
         if dpg.does_item_exist("show_infobox_handler"):
             dpg.delete_item("show_infobox_handler")
@@ -67,14 +67,17 @@ class InfoBoxManager:
         """Removes the current InfoBox from the stack and shows the next one, if any."""
 
         if cls._stack:
-            if dpg.does_item_exist(cls._stack[0].infobox):
-                dpg.delete_item(cls._stack[0].infobox)
-                dpg.split_frame()
-            log(f"DEBUG: Popping InfoBox: {cls._stack[0].title}")
-            cls._stack.pop(0) # Remove the current InfoBox
-            if cls._stack:
-                log(f"DEBUG: Showing next InfoBox: {cls._stack[0].title}")
-                cls._stack[0].show() # Show the next InfoBox in the stack
+            popped = cls._stack.pop(0)
+            log(f"DEBUG: Popping InfoBox: {popped.title}")
+
+            def _pop_cleanup():
+                if dpg.does_item_exist(popped.infobox):
+                    dpg.delete_item(popped.infobox)
+                if cls._stack:
+                    log(f"DEBUG: Showing next InfoBox: {cls._stack[0].title}")
+                    cls._stack[0].show()
+
+            defer_to_main(_pop_cleanup)
 
 class InfoBox:
     """Class to manage the creation and display of info or confirmation pop-up boxes."""
@@ -109,7 +112,7 @@ class InfoBox:
             dpg.delete_item(self.infobox)
 
         # Create popup window
-        with dpg.window(label=self.title, modal=True, no_close=True) as self.infobox:
+        with dpg.window(label=self.title, modal=True, no_close=True, autosize=True) as self.infobox:
             dpg.add_text(self.message, color=color)
             if self.options:
                 dpg.add_text()
@@ -123,26 +126,39 @@ class InfoBox:
                 with dpg.group(horizontal=True) as self.infobtns:
                     dpg.add_button(label="OK", user_data=[self.infobox, None], callback=self.callback)
 
-        # Adjust position and size
-        self._adjust_position(viewport_size)
+        # Defer position adjustment — need at least 2 rendered frames for autosize to compute
+        defer_to_main(self._adjust_position, False)
 
-    def _adjust_position(self, viewport_size):
-        """Adjusts the position of the info box and its elements."""
+    def _adjust_position(self, ready=True):
+        """Centers the info box and its elements. Must run on the render thread after a frame."""
 
-        dpg.split_frame()
-        window_size = np.array((dpg.get_item_width(self.infobox), dpg.get_item_height(self.infobox)))
+        if not dpg.does_item_exist(self.infobox):
+            return
+
+        # First call: sizes aren't ready yet, wait one more frame
+        if not ready:
+            defer_to_main(self._adjust_position)
+            return
+
+        viewport_size = np.array((dpg.get_viewport_client_width(), dpg.get_viewport_client_height()))
+        window_size = np.array(dpg.get_item_rect_size(self.infobox))
+
+        # Center window on viewport
         dpg.set_item_pos(self.infobox, pos=(viewport_size - window_size) / 2)
-        #dpg.split_frame()
 
-        # Center buttons
+        # Center buttons within content area
         if not self.loading:
             group_size = np.array(dpg.get_item_rect_size(self.infobtns))
-            dpg.set_item_pos(self.infobtns, ((window_size[0] - group_size[0]) / 2, dpg.get_item_pos(self.infobtns)[1]))
+            group_pos = dpg.get_item_pos(self.infobtns)
+            content_width = window_size[0] - 2 * group_pos[0]  # infer padding from initial group x position
+            dpg.set_item_pos(self.infobtns, ((content_width - group_size[0]) / 2, group_pos[1]))
 
         # Center loading icon
         if self.loading and self.loading_icon:
+            icon_pos = dpg.get_item_pos(self.loading_icon)
             icon_size = dpg.get_item_rect_size(self.loading_icon)
-            dpg.set_item_pos(self.loading_icon, ((window_size[0] - icon_size[0]) / 2, dpg.get_item_pos(self.loading_icon)[1]))
+            content_width = window_size[0] - 2 * icon_pos[0]
+            dpg.set_item_pos(self.loading_icon, ((content_width - icon_size[0]) / 2, icon_pos[1]))
 
 
 class StatusLine:
