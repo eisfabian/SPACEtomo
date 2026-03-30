@@ -676,6 +676,13 @@ class MicParams_ext:
         for key, value in params.items():
             vars(self)[key] = value
 
+        # Fill in missing focus params from rec and missing search params from view (backwards compatibility)
+        for attr in ["pix_size", "c2ss_matrix", "ss2is_matrix", "ta_rotation", "rotM", "beam_diameter"]:
+            if not hasattr(self, f"focus_{attr}") and hasattr(self, f"rec_{attr}"):
+                setattr(self, f"focus_{attr}", getattr(self, f"rec_{attr}"))
+            if not hasattr(self, f"search_{attr}") and hasattr(self, f"view_{attr}"):
+                setattr(self, f"search_{attr}", getattr(self, f"view_{attr}"))
+
     def export(self, map_dir):
         with open(os.path.join(map_dir, "mic_params.json"), "w+") as f:
              json.dump(vars(self), f, indent=4, default=utils.convertToTaggedString)

@@ -847,12 +847,29 @@ class ImagingParams:
         self.focus_rotM = None
         self.focus_beam_diameter = None
         
+        # Search properties
+        self.search_pix_size = None
+        self.search_c2ss_matrix = None
+        self.search_ss2is_matrix = None
+        self.search_ta_rotation = None
+        self.search_rotM = None
+        self.search_beam_diameter = None
+
         # Read and overwrite params with values from file
         if file_dir and (file_dir / self.file_name).exists():
             self.readFromFile(Path(file_dir))
+            self._fill_defaults()
             log(f"NOTE: Instantiated imaging parameters from {self.file_name} in {file_dir}!")
         else:
             log(f"NOTE: Instantiated blank imaging paramters because no {self.file_name} was found.")
+
+    def _fill_defaults(self):
+        """Fill in missing focus params from rec and missing search params from view (backwards compatibility)."""
+        for attr in ["pix_size", "c2ss_matrix", "ss2is_matrix", "ta_rotation", "rotM", "beam_diameter"]:
+            if getattr(self, f"focus_{attr}") is None and getattr(self, f"rec_{attr}") is not None:
+                setattr(self, f"focus_{attr}", getattr(self, f"rec_{attr}"))
+            if getattr(self, f"search_{attr}") is None and getattr(self, f"view_{attr}") is not None:
+                setattr(self, f"search_{attr}", getattr(self, f"view_{attr}"))
 
     @dummy_skip
     @serialem_check
