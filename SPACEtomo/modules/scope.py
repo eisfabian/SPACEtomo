@@ -490,7 +490,7 @@ class Microscope:
         
         try:
             sem.StartTry(1)
-            sem.SetApertureSize('C', size)
+            sem.SetApertureSize(1, size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert C2 aperture. Please check if SerialEM has aperture control!")
         finally:
@@ -501,7 +501,7 @@ class Microscope:
 
         try:
             sem.StartTry(1)
-            sem.SetApertureSize('O', size)
+            sem.SetApertureSize(2, size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert objective aperture. Please check if SerialEM has aperture control!")
         finally:
