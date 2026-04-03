@@ -428,11 +428,13 @@ class FlmWindow:
         dpg.configure_item(self.lm_plot.img[utils.findIndex(self.lm_plot.img, "label", f"lm_map_{user_data}")]["plot"], show=app_data)
 
         # Toggle show in EM plot
-        if m := utils.findIndex(self.em_plot.img, "label", f"lm_map_{user_data}"):
+        m = utils.findIndex(self.em_plot.img, "label", f"lm_map_{user_data}")
+        if m:
             dpg.configure_item(self.em_plot.img[m]["plot"], show=app_data)
 
         # Toggle show in main plot
-        if m := utils.findIndex(self.main_plot.img, "label", f"lm_map_{user_data}"):
+        m = utils.findIndex(self.main_plot.img, "label", f"lm_map_{user_data}")
+        if m:
             dpg.configure_item(self.main_plot.img[m]["plot"], show=app_data)
 
     def toggleOverlay(self):

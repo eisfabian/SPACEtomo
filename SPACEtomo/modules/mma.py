@@ -88,8 +88,10 @@ class MMMAcquisition:
 
             # Rename mrc file and nav item
             counter = 0
-            while (new_mrc_file := self.cur_dir / f"{self.map_name}_old{counter}.mrc").exists():
+            new_mrc_file = self.cur_dir / f"{self.map_name}_old{counter}.mrc"
+            while new_mrc_file.exists():
                 counter += 1
+                new_mrc_file = self.cur_dir / f"{self.map_name}_old{counter}.mrc"
             self.map_file.replace(new_mrc_file)
             if (self.cur_dir / f"{self.map_file.name}.mdoc").exists():
                 (self.cur_dir / f"{self.map_file.name}.mdoc").replace(self.cur_dir / f"{new_mrc_file.name}.mdoc")
@@ -139,7 +141,8 @@ class MMMAcquisition:
         """Collects map and returns map_id."""
 
         # Check if map already exists in nav        
-        if map_id := self.nav.getIDfromNote(self.map_file.name, warn=False):
+        map_id = self.nav.getIDfromNote(self.map_file.name, warn=False)
+        if map_id:
             log(f"NOTE: Map {self.map_name} already exists.")
 
             # Check for reacquisition

@@ -1162,8 +1162,10 @@ class GridGUI:
         
         # Get name for snapshot
         counter = 1
-        while (snapshot_file_path := self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_snapshot{counter}.png").exists():
+        snapshot_file_path = self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_snapshot{counter}.png"
+        while snapshot_file_path.exists():
             counter += 1
+            snapshot_file_path = self.loaded_map.file.parent / f"{self.loaded_map.file.stem}_snapshot{counter}.png"
         
         saveSnapshot(self.plot.plot, snapshot_file_path)
 

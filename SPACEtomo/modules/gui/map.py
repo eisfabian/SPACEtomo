@@ -60,7 +60,8 @@ class MMap:
                     return
             else:
                 # Catch truncated files
-                for attempt in range(retries := 5):
+                retries = 5
+                for attempt in range(retries):
                     try:
                         #self.img = np.array(Image.open(self.file)).astype(float) / 255
                         #self.img = utils.toNumpy(Image.open(self.file))

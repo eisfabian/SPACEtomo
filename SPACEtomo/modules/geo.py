@@ -159,7 +159,8 @@ class Geometry:
 
                 # Find displacement
                 shift, confidence = alignCC(patch1, patch2)
-                if displacement := np.linalg.norm(shift) <= 2:
+                displacement = np.linalg.norm(shift) <= 2
+                if displacement:
                     log(f"WARNING: Patch image alignment failed with a confidence of {confidence}. Maybe try again at higher defocus.")
                     continue
                 displacement_nm = np.linalg.norm(shift) * buf1.pix_size
