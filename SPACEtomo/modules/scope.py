@@ -562,7 +562,10 @@ class Microscope:
                     slot_status = sem.ReportSlotStatus(index)
                 except sem.SEMerror:
                     slot_status = [-1]
-                
+
+                if not isinstance(slot_status, (list, tuple)):
+                    slot_status = [slot_status]
+
                 # JEOL returns -1 if index out of range
                 if slot_status[0] == -1:
                     break
