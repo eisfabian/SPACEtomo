@@ -304,6 +304,7 @@ class TargetGUI:
             return
 
         # Check for info box input
+        InfoBoxManager.pop()
         if user_data and dpg.does_item_exist(user_data[0]):
             dpg.delete_item(user_data[0])
             dpg.split_frame()
