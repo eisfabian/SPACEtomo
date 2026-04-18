@@ -143,7 +143,8 @@ class IMAlignment:
 
         if fp_nav_id is not None:
             label = self.nav.items[fp_nav_id].label
-            display_label = self.nav.items[fp_nav_id].entries.get("UserValue2", [""])[0]
+            # Custom display label lives on the PP item (set during WG detection); FP item was created from IM detection without a custom label
+            display_label = pp_item.entries.get("UserValue2", [""])[0]
             note = self.nav.items[fp_nav_id].note
 
             # Retain larger polygon at position of final lamella
@@ -161,6 +162,9 @@ class IMAlignment:
                 # Only rename label and note after nav was pushed as it will update SerialEM directly
                 self.nav.items[fp_nav_id].changeLabel(label)
                 self.nav.items[fp_nav_id].changeNote(note)
+                self.nav.items[fp_nav_id].entries["UserValue2"] = [display_label]
+            else:
+                # FP item is kept; copy custom label from PP item so mma.py can find the IMref file
                 self.nav.items[fp_nav_id].entries["UserValue2"] = [display_label]
         else:
             # Retain preliminary lamella if initial confidence was high (includes manually selected lamella)
