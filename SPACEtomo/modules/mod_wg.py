@@ -119,7 +119,8 @@ class WGModel:
         bboxes.removeLowConfidence(threshold)
         log(f"Lamellae found (final): \t{len(bboxes)}")
 
-        # Save bboxes to output file
+        # Save bboxes to output file sorted by label
+        bboxes.sortBy("label")
         box_file = self.map_dir / (Path(map_name + suffix).stem + "_boxes.json")
         bboxes.saveFile(box_file)
 
@@ -161,7 +162,7 @@ class Boxes:
         self.excluded_boxes = []
         for b, box in enumerate(bboxes):
             # Ignore boxes of exclude_cats
-            label = labels[b] if labels is not None and labels[b] != "" else label_prefix + str(b + 1) # Keep custom label if available
+            label = labels[b] if labels is not None and labels[b] != "" else label_prefix + str(b + 1).zfill(2) # Keep custom label if available
             if config.WG_model_categories[int(box[4])] in exclude_cats:
                 self.excluded_boxes.append(BBox(box[:4], *box[4:], label=label))
             else:
