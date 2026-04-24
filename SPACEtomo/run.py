@@ -5,9 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
-# Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
-#               2025/02/06: outsourced MM map acquisition to mma.py
+# Revision:     v1.2
+# Last Change:  2025/02/06: outsourced MM map acquisition to mma.py
 #               2025/01/10: outsourced IM align to ima.py
 #               2024/12/23: added alignTo IM image during grid realign
 #               2024/11/20: switched to nav based item shift, added wait for threaded saving (temporary)
@@ -233,7 +232,7 @@ def main():
                 roi_boxes = WG_model.findLamellae(grid_name, save_future=save_future, label_prefix="PP", exclude_cats=settings["exclude_lamella_classes"])
 
             # Open ROI selection GUI if wait_for_inspection is selected and maps are not external and not already inspected
-            if settings["WG_wait_for_inspection"] and not (MAP_DIR / (grid_name + "_wg_inspected.txt")).exists() and not EXTERNAL_RUN:
+            if settings["WG_wait_for_inspection"] and not (MAP_DIR / (grid_name + "_wg_inspected.txt")).exists():
                 utils.guiProcess("grid", MAP_DIR / (grid_name + "_wg.png"), auto_close=True)
 
             # Wait for ROI boxes to be inspected
@@ -252,13 +251,13 @@ def main():
 
             # Add boxes to nav via map buffer (if no polygons in nav yet)
             if len(roi_PP_ids) == 0:
-                wg_map.addNavBoxes(roi_boxes, label_prefix="PP", padding_factor=config.MM_padding_factor if settings["lamella"] else 1.0)
+                wg_map.addNavBoxes(roi_boxes, padding_factor=config.MM_padding_factor if settings["lamella"] else 1.0)
                 nav.pull()
 
                 # Create virtual maps for IM alignment
                 for b, box in enumerate(roi_boxes.boxes):
-                    # Make virtual map from montage in buffer using display label
-                    virt_map_file = CUR_DIR / (grid_name + f"_{box.label}_IMref.mrc")
+                    # Make virtual map from montage in buffer
+                    virt_map_file = CUR_DIR / (grid_name + f"_IM{b + 1}_ref.mrc")
                     virt_map = np.flip(wg_map.getCropImage(np.flip(box.center) * roi_boxes.pix_size / wg_map.pix_size, np.flip(microscope.camera_dims)), axis=0)       # crop image and flip y-axis
                     log(f"DEBUG: Virtual map dimenstions: {virt_map.shape}")
                     utils.writeMrc(virt_map_file, virt_map, wg_map.pix_size)
@@ -327,16 +326,8 @@ def main():
                 if settings["automation_level"] >= 3 and not EXTERNAL_RUN and i > 0:
                     space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params)
 
-                # Get MM map name using display label from boxes (numeric index for searchability in navigation)
-                nav_label = nav.items[nav_id].label
-                # Try to get custom display label from UserValue2
-                try:
-                    display_label = nav.items[nav_id].entries.get("UserValue2", [""])[0]
-                    if not display_label:
-                        display_label = nav_label
-                except (KeyError, IndexError, TypeError):
-                    display_label = nav_label
-                map_name = f"{grid_name}_{display_label}"
+                # Get MM map name
+                map_name = f"{grid_name}_L{str(i + 1).zfill(2)}"
                 map_file = CUR_DIR / (map_name + ".mrc")
 
                 # Collect medium mag montage
@@ -356,7 +347,7 @@ def main():
                             space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params)
 
                 # Open tgt selection GUI if manual_selection is selected and maps are not external (and only after first map finished collection)
-                if settings["automation_level"] >= 4 and i == 0 and settings["manual_selection"] and not EXTERNAL_RUN:
+                if settings["automation_level"] >= 4 and i == 0 and settings["manual_selection"]:
                     utils.guiProcess("targets", MAP_DIR, auto_close=True)
             log("##### Completed collection of MM maps! [Level 2] #####")
 
@@ -376,7 +367,7 @@ def main():
             # Make sure targets were inspected
             if settings["MM_wait_for_inspection"]:
                 # Open GUI if not already opened for manual selection
-                if not settings["manual_selection"] and not EXTERNAL_RUN:
+                if not settings["manual_selection"]:
                     utils.guiProcess("targets", MAP_DIR, auto_close=True)
                 # Wait for inspection
                 utils.waitForFile(MAP_DIR / (map_file.stem + "_inspected.txt"), 

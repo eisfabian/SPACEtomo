@@ -5,9 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
-# Revision:     v1.4
-# Last Change:  2026/02/04: added support for saving and loading custom box names
-#               2025/01/10: Refactored findLamellae to account for both local and external runs
+# Revision:     v1.2
+# Last Change:  2025/01/10: Refactored findLamellae to account for both local and external runs
 #               2024/08/21: minor fixes after external test run
 #               2024/08/16: added sorting function, added meta data
 # ===================================================================
@@ -148,24 +147,23 @@ class WGModel:
 class Boxes:
     """Collection of bounding boxes"""
 
-    def __init__(self, bboxes, labels=None, label_prefix="L", exclude_cats=[], pix_size=None, img_size=None) -> None:
+    def __init__(self, bboxes, label_prefix="", exclude_cats=[], pix_size=None, img_size=None) -> None:
         """Initializes from box list or from box file."""
 
         self.pix_size = float(pix_size) if pix_size is not None else None       # nm
         self.img_size = np.array(img_size) if img_size is not None else None
 
         if isinstance(bboxes, Path):
-            bboxes, labels = self.getFromFile(bboxes)
+            bboxes = self.getFromFile(bboxes)
 
         self.boxes = []
         self.excluded_boxes = []
         for b, box in enumerate(bboxes):
             # Ignore boxes of exclude_cats
-            label = labels[b] if labels is not None and labels[b] != "" else label_prefix + str(b + 1) # Keep custom label if available
             if config.WG_model_categories[int(box[4])] in exclude_cats:
-                self.excluded_boxes.append(BBox(box[:4], *box[4:], label=label))
+                self.excluded_boxes.append(BBox(box[:4], *box[5:], label=label_prefix + str(b + 1)))
             else:
-                self.boxes.append(BBox(box[:4], *box[4:], label=label))
+                self.boxes.append(BBox(box[:4], *box[4:], label=label_prefix + str(b + 1)))
 
         if len(self.boxes) - len(bboxes) > 0:
             log(f"NOTE: {len(self.boxes) - len(bboxes)} lamellae were excluded because they were {', '.join(exclude_cats)}!")
@@ -215,14 +213,12 @@ class Boxes:
         """Saves json file with bounding boxes."""
 
         bboxes = []
-        labels = []
         for box in self.boxes:
             bboxes.append(box.xyxycc.tolist())
-            labels.append(box.label)
         
         meta_data = {"pix_size": self.pix_size, "img_size": self.img_size, "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}
 
-        data = {"boxes": bboxes, "labels": labels, "meta_data": meta_data}
+        data = {"boxes": bboxes, "meta_data": meta_data}
         with open(file, "w") as f:
             json.dump(data, f, indent=4, default=utils.convertToTaggedString)
 
@@ -233,7 +229,6 @@ class Boxes:
             data = json.load(f, object_hook=utils.revertTaggedString)
             if isinstance(data, dict):
                 bboxes = data["boxes"]
-                labels = data.get("labels", [""] * len(bboxes))
                 meta_data = data["meta_data"]
             else:
                 bboxes = data           # keep compatibility with boxes.json before meta_data
@@ -244,7 +239,7 @@ class Boxes:
         if "img_size" in meta_data.keys():
             self.img_size = meta_data["img_size"]
 
-        return bboxes, labels
+        return bboxes
     
     def sortBy(self, key, reverse=False):
         """Sorts boxes by coords, distance or attribute."""

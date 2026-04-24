@@ -5,9 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
-# Revision:     v1.4
-# Last Change:  2026/02/02: added renaming of ROIs
-#               2025/04/12: added InfoBoxManager to stack popups, fixed tooltips of hidden buttons showing up
+# Revision:     v1.3
+# Last Change:  2025/04/12: added InfoBoxManager to stack popups, fixed tooltips of hidden buttons showing up
 #               2025/03/13: renamed lamella to ROI
 #               2025/03/06: added grid boxes, added class legend
 #               2025/01/30: fixed lamella list and find maps button not shown when inspected
@@ -70,16 +69,12 @@ class RegionBox(PlotBox):
         super().__init__(coords, parent, color)
 
         self.label = None
-        self.id = None
-        self.custom_label = False
         if roi_info is not None:
             self.addInfo(roi_info)
 
     def addInfo(self, roi_info):
         if self.label is None:
             self.label = roi_info["label"]
-        if self.id is None:
-            self.id = roi_info["id"]
         self.cat = roi_info["cat"]
         self.prob = roi_info["prob"]
         self.coords = (self.p1 + self.p2) / 2
@@ -167,15 +162,14 @@ class GridGUI:
 
                         # Add ROI data
                         if len(self.plot.boxes) > 1:
-                            #index = int(self.plot.boxes[-2].label.split("L")[-1]) + 1
-                            index = self.plot.boxes[-2].id + 1
+                            index = int(self.plot.boxes[-2].label.split("L")[-1]) + 1
                         else:
                             index = 1
-                        roi_info = {"id": index, "label": "L" + str(index).zfill(2), "cat": config.WG_model_categories.index("good"), "prob": 1}
+                        roi_info = {"label": "L" + str(index).zfill(2), "cat": config.WG_model_categories.index("good"), "prob": 1}
                         self.plot.boxes[-1].addInfo(roi_info)
                         self.plot.boxes[-1].updateColor(config.WG_model_gui_colors[config.WG_model_categories.index("good")])
                         self.plot.boxes[-1].drawLabel(self.plot.boxes[-1].label)
-                        self.plot.sortList("boxes", "id")#"label")
+                        self.plot.sortList("boxes", "label")
 
                         # Plot grid of other boxes
                         #self.plotGrid()
@@ -227,15 +221,14 @@ class GridGUI:
 
             # Add ROI data
             if len(self.plot.boxes) > 1:
-                #index = int(self.plot.boxes[-2].label.split("L")[-1]) + 1
-                index = self.plot.boxes[-2].id + 1
+                index = int(self.plot.boxes[-2].label.split("L")[-1]) + 1
             else:
                 index = 1
-            roi_info = {"id": index, "label": "L" + str(index).zfill(2), "cat": config.WG_model_categories.index("good"), "prob": 1}
+            roi_info = {"label": "L" + str(index).zfill(2), "cat": config.WG_model_categories.index("good"), "prob": 1}
             self.plot.boxes[-1].addInfo(roi_info)
             self.plot.boxes[-1].updateColor(config.WG_model_gui_colors[config.WG_model_categories.index("good")])
             self.plot.boxes[-1].drawLabel(self.plot.boxes[-1].label)
-            self.plot.sortList("boxes", "id")#"label")
+            self.plot.sortList("boxes", "label")
 
             # Plot grid of other boxes
             self.plotGrid()
@@ -454,12 +447,7 @@ class GridGUI:
                 self.plot.boxes[-1].updateP2(p2)
 
                 # Add ROI data
-                if bbox.label != "":
-                    label = bbox.label
-                    self.plot.boxes[-1].custom_label = True
-                else:
-                    label = "L" + str(prev_box_num + b + 1).zfill(2)
-                roi_info = {"id": prev_box_num + b + 1, "label": label, "cat": bbox.cat, "prob": bbox.prob}
+                roi_info = {"label": "L" + str(prev_box_num + b + 1).zfill(2), "cat": bbox.cat, "prob": bbox.prob}
                 self.plot.boxes[-1].addInfo(roi_info)
                 self.plot.boxes[-1].drawLabel(self.plot.boxes[-1].label)
 
@@ -501,7 +489,7 @@ class GridGUI:
             self.plot.boxes[-1].updateP2(p2)
 
             # Add ROI data
-            roi_info = {"id": prev_box_num + l + 1, "label": "L" + str(prev_box_num + l + 1).zfill(2), "cat": int(label[0]), "prob": 1}
+            roi_info = {"label": "L" + str(prev_box_num + l + 1).zfill(2), "cat": int(label[0]), "prob": 1}
             self.plot.boxes[-1].addInfo(roi_info)
             self.plot.boxes[-1].drawLabel(self.plot.boxes[-1].label)
 
@@ -651,14 +639,12 @@ class GridGUI:
         # Get mouse position for info window
         mouse_coords_global = dpg.get_mouse_pos(local=False)
 
-        dpg.set_value(self.menu_roi.all_elements["roi_label"], self.plot.boxes[user_data].label)
-        dpg.set_value(self.menu_roi.all_elements["roi_label_inp"], self.plot.boxes[user_data].label)
-        dpg.set_value(self.menu_roi.all_elements["roi_cat"], config.WG_model_categories[self.plot.boxes[user_data].cat])
-        dpg.configure_item(self.menu_roi.all_elements["roi_btn_label_save"], user_data=user_data)
-        dpg.configure_item(self.menu_roi.all_elements["roi_cat"], user_data=user_data)
-        dpg.configure_item(self.menu_roi.all_elements["roi_btndel"], user_data=user_data)
-        dpg.configure_item(self.menu_roi.all_elements["roi_btnup"], user_data=user_data)
-        dpg.configure_item(self.menu_roi.all_elements["roi_btndown"], user_data=user_data)
+        dpg.set_value("roi_label", self.plot.boxes[user_data].label)
+        dpg.set_value("roi_cat", config.WG_model_categories[self.plot.boxes[user_data].cat])
+        dpg.configure_item("roi_cat", user_data=user_data)
+        dpg.configure_item("roi_btndel", user_data=user_data)
+        dpg.configure_item("roi_btnup", user_data=user_data)
+        dpg.configure_item("roi_btndown", user_data=user_data)
         if update_pos:
             dpg.set_item_pos("ROI", mouse_coords_global)
         dpg.show_item("ROI")
@@ -671,7 +657,7 @@ class GridGUI:
         self.plot.boxes.pop(user_data)
         # Reset ROI menu
         dpg.hide_item("ROI")
-        dpg.configure_item(self.menu_roi.all_elements["roi_cat"], user_data=None)
+        dpg.configure_item("roi_cat", user_data=None)
         self.selected_roi -= 1
         # Update table
         self.makeROITable()
@@ -684,14 +670,14 @@ class GridGUI:
 
         # Deal with call from shortcuts
         if user_data is None:
-            user_data = dpg.get_item_user_data(self.menu_roi.all_elements["roi_cat"])
+            user_data = dpg.get_item_user_data("roi_cat")
         if user_data is not None:
             self.plot.boxes[user_data].cat = config.WG_model_categories.index(app_data)
             self.plot.boxes[user_data].prob = 1
             self.plot.boxes[user_data].updateColor(config.WG_model_gui_colors[config.WG_model_categories.index(app_data)])
             # Reset ROI menu
             dpg.hide_item("ROI")
-            dpg.configure_item(self.menu_roi.all_elements["roi_cat"], user_data=None)
+            dpg.configure_item("roi_cat", user_data=None)
             # Update table
             self.makeROITable()
             dpg.show_item(self.menu.all_elements["btn_save"])
@@ -726,53 +712,15 @@ class GridGUI:
             self.showROIInfo(None, None, user_data=new_box_id, update_pos=False)
             dpg.show_item(self.menu.all_elements["btn_save"])
 
-    def editROILabel(self, sender, app_data, user_data):
-        """Show label input field."""
-
-        self.menu_roi.showElements(["roi_label_inp", "roi_btn_label_save"])
-        self.menu_roi.hideElements(["roi_label", "roi_btn_label_edit"])
-
-    def saveROILabel(self, sender, app_data, user_data):
-        """Saves edited ROI label."""
-
-        new_label = dpg.get_value(self.menu_roi.all_elements["roi_label_inp"])
-
-        if new_label.strip() == "":
-            log("ERROR: ROI label cannot be empty!")
-            dpg.set_value(self.menu_roi.all_elements["roi_error_text"], "ROI label cannot be empty!")
-            self.menu_roi.showElements(["roi_error_text"])
-            return
-
-        if new_label in [box.label for box in self.plot.boxes if box != self.plot.boxes[user_data]]:
-            log(f"ERROR: ROI label '{new_label}' already exists!")
-            dpg.set_value(self.menu_roi.all_elements["roi_error_text"], f"ROI label '{new_label}' already exists!")
-            self.menu_roi.showElements(["roi_error_text"])
-            return
-
-        self.plot.boxes[user_data].custom_label = True
-        self.plot.boxes[user_data].label = new_label
-        self.plot.boxes[user_data].drawLabel(new_label)
-        # Reset ROI menu
-        dpg.set_value(self.menu_roi.all_elements["roi_label"], self.plot.boxes[user_data].label)
-        self.menu_roi.hideElements(["roi_label_inp", "roi_btn_label_save", "roi_error_text"])
-        self.menu_roi.showElements(["roi_label", "roi_btn_label_edit"])
-        # Update table
-        self.makeROITable()
-        dpg.show_item(self.menu.all_elements["btn_save"])
-
     def relabelROIs(self):
         """Relabels ROIs by order."""
 
         for b, box in enumerate(self.plot.boxes):
-            box.id = b + 1
-            if not box.custom_label:
-                box.label = "L" + str(b + 1).zfill(2)
+            box.label = "L" + str(b + 1).zfill(2)
             box.drawLabel(box.label)
 
     def saveROIs(self, sender, app_data, user_data, map_file=None, map_pix_size=None):
         """Saves detected ROIs to file."""
-
-        #TODO save custom names to file as well
 
         if map_file is None:
             map_file = self.loaded_map.file
@@ -783,7 +731,6 @@ class GridGUI:
             map_y = int(self.loaded_map.img.shape[0] * self.loaded_map.pix_size / map_pix_size)
 
         bboxes = []
-        labels =[]
         for plot_box in self.plot.boxes:
             bbox = np.zeros(6)
             # Convert plot coords to pixel coords
@@ -796,12 +743,11 @@ class GridGUI:
             bbox[5] = plot_box.prob
 
             bboxes.append(bbox)
-            labels.append(plot_box.label)
         bboxes = np.array(bboxes)
 
         # Save bboxes
         box_file = map_file.parent / (map_file.stem + "_boxes.json")
-        bboxes = Boxes(bboxes, labels=labels, pix_size=map_pix_size, img_size=self.loaded_map.img.shape)
+        bboxes = Boxes(bboxes, pix_size=map_pix_size, img_size=self.loaded_map.img.shape)
         bboxes.saveFile(box_file)
 
         #with open(os.path.splitext(map_file)[0].split("_wg")[0] + "_boxes.json", "w+") as f:
@@ -1250,7 +1196,7 @@ class GridGUI:
         dpg.set_viewport_resize_callback(callback=lambda: gui.window_size_change(self.logo_dims))
 
         # Create event handlers
-        with dpg.handler_registry(tag="mouse_handler") as mouse_handler:
+        with dpg.handler_registry() as mouse_handler:
             dpg.add_mouse_click_handler(callback=self.mouseClick)
             dpg.add_mouse_release_handler(button=dpg.mvMouseButton_Left, callback=self.mouseRelease)
             dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Left, callback=self.mouseDrag)
@@ -1343,26 +1289,26 @@ class GridGUI:
                         self.menu.newRow(tag="roilist")
 
                         self.menu.newRow(tag="detect", horizontal=True, advanced=True)
-                        self.menu.addButton(tag="btn_detect", label="Detect lamellae", callback=self.callLamellaDetection, tooltip="Use SPACEtomo detection model to find lamellae.")
+                        self.menu.addButton(tag="btn_detect", label="Detect lamellae", callback=self.callLamellaDetection)
 
                         self.menu.newRow(tag="rescale", horizontal=True, advanced=True)
                         self.menu.addInput("inp_pixsize", label="[nm/px]", value=100)
                         self.menu.addButton(tag="btn_rescale", label="Rescale", callback=self.rescaleMap)
 
                         self.menu.newRow(tag="inspect")
-                        self.menu.addButton(tag="btn_save", label="Save", callback=self.saveROIs, show=False, tooltip="Save ROI coordinates for SPACEtomo.")
+                        self.menu.addButton(tag="btn_save", label="Save", callback=self.saveROIs, show=False)
                         self.menu.addButton(tag="btn_inspect", label="Confirm inspection", callback=self.markInspected, theme="large_btn_theme")
 
                         self.menu.newRow(tag="export")
                         self.menu.addCheckbox(tag="chk_empty", label="Include empty tiles", value=False, advanced=True)
                         self.menu.addCheckbox(tag="chk_modeltiles", label="Use model tile size", value=True, advanced=True)
                         self.menu.addCheckbox(tag="chk_padding", label="Use padding", value=True, advanced=True)
-                        self.menu.addButton(tag="btn_exptiles", label="Export tiles", callback=self.splitTilesForExport, tooltip="Export map tiles and ROI boxes for YOLO training.")
+                        self.menu.addButton(tag="btn_exptiles", label="Export tiles", callback=self.splitTilesForExport)
                         self.menu.addButton(tag="btn_datacomp", label="Dataset composition", callback=self.datasetComposition, advanced=True)
 
                         self.menu.newRow(tag="mrcscale", horizontal=True, advanced=True)
                         self.menu.addInput(tag="inp_quantile", label="quantile", value=0.01)
-                        self.menu.addButton(tag="btn_rescalemrc", label="Rescale mrc", callback=lambda: self.loadMap(None, {"selections": {self.loaded_map.file.name: self.loaded_map.file}}, None, quantile=dpg.get_value(self.menu.all_elements["inp_quantile"])), tooltip="Rescale mrc map to desired pixel size. If a png file is loaded, the pixel size of the SPACEtomo model is assumed.")
+                        self.menu.addButton(tag="btn_rescalemrc", label="Rescale mrc", callback=lambda: self.loadMap(None, {"selections": {self.loaded_map.file.name: self.loaded_map.file}}, None, quantile=dpg.get_value(self.menu.all_elements["inp_quantile"])))
 
                         self.status = StatusLine()
 
@@ -1380,14 +1326,14 @@ class GridGUI:
             # Create tooltips
             with dpg.tooltip("l1", delay=0.5):
                 dpg.add_text("Select an .mrc or .png whole grid montage.\nIf IMOD is available, the piece coordinates will be read from the mrc header.")
-            #with dpg.tooltip(self.menu.all_elements["btn_detect"], delay=0.5):
-            #    dpg.add_text("Use SPACEtomo detection model to find lamellae.")
-            #with dpg.tooltip(self.menu.all_elements["btn_save"], delay=0.5):
-            #    dpg.add_text("Save ROI coordinates for SPACEtomo.")
-            #with dpg.tooltip(self.menu.all_elements["btn_rescale"], delay=0.5):
-            #    dpg.add_text("Rescale mrc map to desired pixel size. If a png file is loaded, the pixel size of the SPACEtomo model is assumed.")
-            #with dpg.tooltip(self.menu.all_elements["btn_exptiles"], delay=0.5):
-            #    dpg.add_text("Export map tiles and ROI boxes for YOLO training.")
+            with dpg.tooltip(self.menu.all_elements["btn_detect"], delay=0.5):
+                dpg.add_text("Use SPACEtomo detection model to find lamellae.")
+            with dpg.tooltip(self.menu.all_elements["btn_save"], delay=0.5):
+                dpg.add_text("Save ROI coordinates for SPACEtomo.")
+            with dpg.tooltip(self.menu.all_elements["btn_rescale"], delay=0.5):
+                dpg.add_text("Rescale mrc map to desired pixel size. If a png file is loaded, the pixel size of the SPACEtomo model is assumed.")
+            with dpg.tooltip(self.menu.all_elements["btn_exptiles"], delay=0.5):
+                dpg.add_text("Export map tiles and ROI boxes for YOLO training.")
 
             with dpg.tooltip("tblplot", delay=0.5, hide_on_activity=True):
                 #dpg.add_text(default_value="", color=gui.COLORS["heading"], tag="tt_heading")
@@ -1400,27 +1346,6 @@ class GridGUI:
 
         # Create ROI menu
         with dpg.window(label="Region of Interest", tag="ROI", no_scrollbar=True, no_scroll_with_mouse=True, popup=True, show=False) as win_roi:
-            self.menu_roi = Menu(outline=False)
-            self.menu_roi.newRow(tag="roi_menu", horizontal=True, separator=False, locked=False)
-            #self.menu_roi.addImageText(tag="roi_label", texture=gui.makeIconFromImg("flag"), text="Label", color=gui.COLORS["heading"])
-            self.menu_roi.addText(tag="roi_label", value="Label", color=gui.COLORS["heading"])
-            self.menu_roi.addInput(tag="roi_label_inp", label="", value="Label", width=100, callback=None, show=False)
-            self.menu_roi.addImageButton(tag="roi_btn_label_edit", texture=gui.makeIconEdit(), callback=self.editROILabel, tooltip="Edit ROI label", show=True)
-            self.menu_roi.addImageButton(tag="roi_btn_label_save", texture=gui.makeIconSave(), callback=self.saveROILabel, tooltip="Save ROI label", show=False)
-
-            self.menu_roi.newRow(tag="roi_error", horizontal=True, separator=False, locked=False)
-            self.menu_roi.addText(tag="roi_error_text", value="", color=gui.COLORS["error"], show=False)
-
-            self.menu_roi.newRow(tag="roi_cat", horizontal=True, separator=False, locked=False)
-            self.menu_roi.addText(tag="roi_catlabel", value="Category:", color=gui.COLORS["subtle"])
-            self.menu_roi.addCombo(tag="roi_cat", combo_list=config.WG_model_categories, callback=self.catROI)
-
-            self.menu_roi.newRow(tag="roi_reorder", horizontal=True, separator=False, locked=False)
-            self.menu_roi.addButton(tag="roi_btndel", label="Delete", callback=self.deleteROI, tooltip="Delete selected ROI")
-            self.menu_roi.addButton(tag="roi_btnup", callback=self.reorderROIUp, tooltip="Move ROI up in list order", arrow=True, direction=dpg.mvDir_Up)
-            self.menu_roi.addButton(tag="roi_btndown", callback=self.reorderROIDown, tooltip="Move ROI down in list order", arrow=True, direction=dpg.mvDir_Down)
-
-            """
             dpg.add_text(default_value="Region of Interest", color=gui.COLORS["heading"], tag="roi_label")
             dpg.add_radio_button(config.WG_model_categories, callback=self.catROI, user_data=None, tag="roi_cat")
             dpg.add_button(label="Delete", callback=self.deleteROI, user_data=None, tag="roi_btndel")
@@ -1434,7 +1359,6 @@ class GridGUI:
                     dpg.add_text("Move ROI up in list order.")
                 with dpg.tooltip("roi_btndown", delay=0.5):
                     dpg.add_text("Move ROI down in list order.")
-            """
         self.blocking_windows.append(win_roi) # Add to blocking windows to keep track of open popups
 
         dpg.bind_theme("global_theme")
@@ -1447,11 +1371,6 @@ class GridGUI:
         # Render loop
         next_update = time.time() + 1
         while dpg.is_dearpygui_running():
-
-            if dpg.is_item_visible(self.menu_roi.all_elements["roi_label_inp"]):      # Turn off keyboard shortcuts when ROI input field might be active
-                dpg.hide_item("mouse_handler")
-            else:
-                dpg.show_item("mouse_handler")
 
             # Recheck folder for segmentation every minute
             now = time.time()

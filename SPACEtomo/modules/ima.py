@@ -5,9 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2025/01/10
-# Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
-#               2025/02/21: refactored to always have iterative IM reference alignment
+# Revision:     v1.3
+# Last Change:  2025/02/21: refactored to always have iterative IM reference alignment
 #               2025/01/10: outsourcing from run.py
 # ===================================================================
 
@@ -143,7 +142,6 @@ class IMAlignment:
 
         if fp_nav_id is not None:
             label = self.nav.items[fp_nav_id].label
-            display_label = self.nav.items[fp_nav_id].entries.get("UserValue2", [""])[0]
             note = self.nav.items[fp_nav_id].note
 
             # Retain larger polygon at position of final lamella
@@ -161,7 +159,6 @@ class IMAlignment:
                 # Only rename label and note after nav was pushed as it will update SerialEM directly
                 self.nav.items[fp_nav_id].changeLabel(label)
                 self.nav.items[fp_nav_id].changeNote(note)
-                self.nav.items[fp_nav_id].entries["UserValue2"] = [display_label]
         else:
             # Retain preliminary lamella if initial confidence was high (includes manually selected lamella)
             if float(pp_item.entries["UserValue1"][0]) >= 0.9:
@@ -183,7 +180,7 @@ class IMAlignment:
         self.nav.push()
         # Only rename label and note after nav was pushed as it will update SerialEM directly
         pp_item.changeLabel(f"{self.final_prefix}{p_id + 1}")
-        #pp_item.changeNote(f"{self.final_prefix}{p_id + 1}: " + pp_item.note.split(":")[-1]) # TODO: Test if the note needs to be changed for display_label
+        pp_item.changeNote(f"{self.final_prefix}{p_id + 1}: " + pp_item.note.split(":")[-1])
 
     def findEucentricity(self):
         """Runs eucentricity routine and updates z coord of positions."""
@@ -252,15 +249,7 @@ class IMAlignment:
             self.microscope.moveStage(self.nav.items[position_id].stage)
             self.findEucentricity()
 
-            # Get display label from navigator item's UserValue2 to find IM reference
-            try:
-                display_label = self.nav.items[position_id].entries.get("UserValue2", [""])[0]
-                if not display_label:
-                    display_label = f"{self.label_prefix}{p + 1}"
-            except (KeyError, IndexError, TypeError):
-                display_label = f"{self.label_prefix}{p + 1}"
-            
-            ref_file = self.cur_dir / f"{grid_name}_{display_label}_IMref.mrc"
+            ref_file = self.cur_dir / f"{grid_name}_IM{p + 1}_ref.mrc"
             if ref_file.exists():
                 log(f"Realigning to WG reference...")
                 im_buffer, stage_shift = self.alignToRef(ref_buffer=Buffer(buffer="O", file_path=ref_file))
@@ -278,7 +267,7 @@ class IMAlignment:
                 return
                     
             # Make new nav map
-            im_file = self.cur_dir / f"{grid_name}_{display_label}_IM.mrc"
+            im_file = self.cur_dir / f"{grid_name}_IM{p + 1}.mrc"
             map_id = self.nav.newMap(buffer=im_buffer, img_file=im_file, label=f"{self.label_prefix}{p + 1}", note=self.nav.items[position_id].note, coords=self.nav.items[position_id].stage) # Coords are only needed for DUMMY and ignored for normal map
 
             # Update IM pix_size

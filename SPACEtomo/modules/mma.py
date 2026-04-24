@@ -5,9 +5,8 @@
 #               More information at http://github.com/eisfabian/SPACEtomo
 # Author:       Fabian Eisenstein
 # Created:      2025/02/06
-# Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
-#               2025/02/12: added geo estimation
+# Revision:     v1.3
+# Last Change:  2025/02/12: added geo estimation
 #               2025/02/06: outsourcing from run.py
 # ===================================================================
 
@@ -161,15 +160,7 @@ class MMMAcquisition:
             # Collect map
             map_id = self.microscope.collectPolygonMontage(self.poly_id, self.map_file, config.MM_montage_overlap)
             self.nav.pull()
-            # Extract label from map_name for navigator (e.g., "grid_FP01" -> "FP01")
-            grid_name = self.microscope.autoloader[self.microscope.loaded_grid]
-            nav_label = self.map_name.split(grid_name)[-1].lstrip('_')
-            # Use only the numeric part for navigator label to keep searchable format
-            try:
-                map_num = int(nav_label.lstrip('LPFGI'))
-                self.nav.items[map_id].changeLabel(f"MM{str(map_num).zfill(2)}")
-            except ValueError:
-                self.nav.items[map_id].changeLabel(nav_label[:6]) # Fallback: use first 6 characters of nav_label if it cannot be converted to int
+            self.nav.items[map_id].changeLabel(f"L{self.map_name.split('_L')[-1]}")
 
         return map_id
     
@@ -223,18 +214,10 @@ class MMMAcquisition:
         # Move stage
         self.microscope.moveStage(self.nav.items[self.poly_id].stage)
 
-        # Get grid name and IM reference file using display label
+        # Get grid name and map number
         grid_name = self.microscope.autoloader[self.microscope.loaded_grid]
-        # Extract display label from UserValue2 if available
-        try:
-            display_label = self.nav.items[self.poly_id].entries.get("UserValue2", [""])[0]
-            if not display_label:
-                # Fallback: use map name directly
-                display_label = self.map_name.split(grid_name)[-1].lstrip('_')
-        except (KeyError, IndexError, TypeError):
-            display_label = self.map_name.split(grid_name)[-1].lstrip('_')
-        
-        ref_file = self.cur_dir / f"{grid_name}_{display_label}_IMref.mrc"
+        map_num = int(self.map_name.split(grid_name)[-1].split('_L')[-1])
+        ref_file = self.cur_dir / f"{grid_name}_IM{map_num}.mrc"
         if ref_file.exists():
             log(f"Realigning to IM reference...")
             _, stage_shift = self.alignToRef(ref_buffer=Buffer(buffer="O", file_path=ref_file))
