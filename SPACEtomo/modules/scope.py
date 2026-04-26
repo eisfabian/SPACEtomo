@@ -108,10 +108,22 @@ class Microscope:
         return float(sem.ReportPercentC2()[0]) # Returns fractional lens strength as second value
 
     @property
+    def is_jeol(self):
+        if self.autoloader_type is None:
+            self.checkAutoloader()
+        return self.autoloader_type == 'jeol'
+
+    def _aperture_id(self, name):
+        """Returns aperture identifier as string for JEOL, integer for Thermo/FEI."""
+        if self.is_jeol:
+            return name  # 'C' or 'O'
+        return {'C': 1, 'O': 2, 'S': 4}[name]
+
+    @property
     def condenser_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize('C'))
+            return int(sem.ReportApertureSize(self._aperture_id('C')))
         except sem.SEMerror:
             log(f"WARNING: Could not access C2 aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -122,7 +134,7 @@ class Microscope:
     def objective_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize('O'))
+            return int(sem.ReportApertureSize(self._aperture_id('O')))
         except sem.SEMerror:
             log(f"WARNING: Could not access objective aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -490,7 +502,7 @@ class Microscope:
         
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(1, size)
+            sem.SetApertureSize(self._aperture_id('C'), size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert C2 aperture. Please check if SerialEM has aperture control!")
         finally:
@@ -501,7 +513,7 @@ class Microscope:
 
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(2, size)
+            sem.SetApertureSize(self._aperture_id('O'), size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert objective aperture. Please check if SerialEM has aperture control!")
         finally:
