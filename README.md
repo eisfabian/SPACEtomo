@@ -145,8 +145,8 @@ NOTE: If you train your own models, please consider sharing them with the commun
 
 You should also adjust the config file if you use a new model. You can access the config.py file using the `SPACEconfig` command:
 
-    SPACEconfig get --name <file_name>              # Fetches a copy of config.py and saves it to the current directory as <file_name>
-    SPACEconfig set --name <file_name>              # Applies <file_name> (config.py by default) as new config file
+    SPACEconfig get --file <file_name>              # Fetches a copy of config.py and saves it to the current directory as <file_name>
+    SPACEconfig set --file <file_name>              # Applies <file_name> (config.py by default) as new config file
 
 You can edit and adjust the config.py like a text file for your needs.
 
@@ -459,6 +459,22 @@ If you want to setup targets in a regular fashion, there are currently 2 options
 
 Additionally, you can use polygon mode (pentagon icon) to add a polygon by clicking on the plot. After closing a polygon, you can activate a pattern mode and polygon mode together to only add target suggestions within the bounds of the polygon.
 
+#### Multi-magnification acquisition (BIGSMALL)
+
+SPACEtomo supports multi-magnification cryo-ET, in which high-magnification (HM) and low-magnification (LM) tilt series are acquired interleaved from the same region of interest. This approach, called **BIGSMALL** (Broad Information Gathering Strategy by Multiscale Acquisition of lameLLa), was introduced by [Watson et al. (2026)](https://doi.org/10.64898/2026.04.21.719848) and enables simultaneous collection of large field-of-view, cellular-context tomograms and high-resolution, subtomogram averaging-compatible tilt series with minimal additional electron dose.
+
+The key concept is that each target in a PACEtomo acquisition group can be assigned to a different SerialEM **Low Dose area** (e.g. *Record* for HM targets, *Search* or *View* for LM targets).
+
+**Setup in the Target selection GUI:**
+
+By default, all manually added targets use the *Record* Low Dose area. To add a target using a different area, hold the corresponding key while clicking on the map:
+- `Shift` + `V` + click → *View* area target
+- `Shift` + `S` + click → *Search* area target
+
+For right-clicked targets, you can also change the Low Dose area via the `Low Dose Area` dropdown in the context menu.
+
+Make sure the *Search* Low Dose preset in your MM imaging state is configured with the desired low-magnification and defocus offset settings in SerialEM before running the acquisition.
+
 ### CLEM GUI
 
 The correlative light and electron microscopy (CLEM) interface allows for loading, registration and overlaying of light microscopy data to enable target selection based on fluorescent signals. It is a sub-window of the [Target selection GUI](#target-selection-gui) and can be opened via the `CLEM` button.
@@ -522,7 +538,7 @@ Here are some common problems that might occur:
 - If SPACEtomo freezes or crashes when loading an image from the SerialEM buffer, please try just running it again. This issue should be fixed in the latest SerialEM 4.2beta+.
 - If you get an error saying something like `unexpected keyword argument 'perform_everything_on_XXX`:
   - nnUNet changed the name of the argument recently from `perform_everything_on_gpu` to `perform_everything_on_device`.
-  - Please try to change it accordingly in the *SPACEtomo_nnUNet.py* script (SPACEtomo v1.1) and try running it again.
+  - Please try to change it accordingly in the *run_nnUNet.py* script and try running it again.
 - If your tilt series are off target, check if your Record and View mag are aligned in the used image state and consider doing the "High-Defocus IS" calibration for your View mag.
 - If your lamella is not in the field of view when switching between low mag and intermediate mag or between intermediate mag and View mag, redo the "Mag IS Offsets" calibrations.
 - If SerialEM terminates the script with a montage error concerning an exceeded limit in the Script Control, go to *Scripts* > *Controls* and remove any limits that cause the script to terminate.
