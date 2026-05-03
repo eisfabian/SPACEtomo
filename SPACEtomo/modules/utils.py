@@ -177,23 +177,27 @@ def toNumpy(img):
                 raise err
             else:
                 log(f"WARNING: Loading image failed. Trying again... [{i + 1}/{retries}]")
-    # unpack data
-    e = Image._getencoder(img.mode, 'raw', img.mode)
-    e.setimage(img.im)
+    # unpack data using fast low-level path; fall back to np.array for newer Pillow
+    try:
+        e = Image._getencoder(img.mode, 'raw', img.mode)
+        e.setimage(img.im)
 
-    # NumPy buffer for the result
-    shape, typestr = Image._conv_type_shape(img)
-    data = np.empty(shape, dtype=np.dtype(typestr))
-    mem = data.data.cast('B', (data.data.nbytes,)) # type: ignore
+        # NumPy buffer for the result
+        shape, typestr = Image._conv_type_shape(img)
+        data = np.empty(shape, dtype=np.dtype(typestr))
+        mem = data.data.cast('B', (data.data.nbytes,)) # type: ignore
 
-    bufsize, s, offset = 65536, 0, 0
-    while not s:
-        l, s, d = e.encode(bufsize)
-        mem[offset:offset + len(d)] = d
-        offset += len(d)
-    if s < 0:
-        raise RuntimeError("encoder error %d in tobytes" % s)
-    return data
+        bufsize, s, offset = 65536, 0, 0
+        while not s:
+            l, s, d = e.encode(bufsize)
+            mem[offset:offset + len(d)] = d
+            offset += len(d)
+        if s < 0:
+            raise RuntimeError("encoder error %d in tobytes" % s)
+        return data
+    except TypeError:
+        log("DEBUG: Fast toNumpy path failed, falling back to np.array (Pillow API change).")
+        return np.array(img)
 
 
 def guessMontageDims(tile_num):
