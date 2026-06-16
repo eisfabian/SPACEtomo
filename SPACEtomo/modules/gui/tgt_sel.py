@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2025/08/25: added LD area selection in tgt menu, removed any target overlay texture code
+# Last Change:  2026/06/16: matched click area to LD FOV, prefer closer geo point, fixed drag release snapping
+#               2025/08/25: added LD area selection in tgt menu, removed any target overlay texture code
 #               2025/08/24: replaced target overlay generation with new implementation using drawlist
 #               2025/05/31: outsourced makeTargetOverlay to gui.py, added support for targets using different LD areas
 #               2025/04/12: added InfoBoxManager to stack popups
@@ -136,15 +137,17 @@ class TargetGUI:
 
             if tgt_in_range:
                 self.drag_point = tgt_id
+                self.drag_point_start = self.targets.areas[tgt_id[0]].points[tgt_id[1]].copy()
                 #log(f"DEBUG: Drag point {self.drag_point} selected at {self.targets.areas[self.drag_point[0]].points[self.drag_point[1]]}")
-                self.drag_start = mouse_coords
-                #log(f"DEBUG: Drag start at {self.drag_start}")
+                self.drag_mouse_start = mouse_coords
+                #log(f"DEBUG: Drag start at {self.drag_mouse_start}")
 
             elif geo_in_range:
                 self.drag_point = geo_id
+                self.drag_point_start = self.targets.areas[0].geo_points[geo_id].copy()
                 #log(f"DEBUG: Drag geo point {self.drag_point} selected at {self.targets.areas[0].geo_points[self.drag_point]}")
-                self.drag_start = mouse_coords
-                #log(f"DEBUG: Drag start at {self.drag_start}")
+                self.drag_mouse_start = mouse_coords
+                #log(f"DEBUG: Drag start at {self.drag_mouse_start}")
 
             else:
                 # Check if suggestion is in range
@@ -174,16 +177,19 @@ class TargetGUI:
     def mouseDrag(self, sender, app_data):
         """Handles update on mouse drag."""
 
-        if self.drag_point is not None and self.drag_start is not None:
+        if self.drag_point is not None and self.drag_mouse_start is not None:
             # Get mouse coords in plot coord system
             mouse_coords = np.array(dpg.get_plot_mouse_pos())
             mouse_coords = np.clip(mouse_coords, [0, 0], self.plot.bounds[:, 1])
 
+            # Drag offset in image px relative to grab position (constant term of microns2px cancels)
+            delta = self.loaded_map.microns2px(mouse_coords) - self.loaded_map.microns2px(self.drag_mouse_start)
+
             # Target has area_id and point_id, geo_point has only point_id
             if isinstance(self.drag_point, list):
-                # Update target coords
-                self.targets.areas[self.drag_point[0]].points[self.drag_point[1]] = self.loaded_map.microns2px(mouse_coords)# - self.loaded_map.microns2px(self.drag_start)
-                
+                # Update target coords by drag offset (keeps grab position relative to target, matching the drawn overlay)
+                self.targets.areas[self.drag_point[0]].points[self.drag_point[1]] = self.drag_point_start + delta
+
                 # Clip to map boundaries
                 if self.targets.areas[self.drag_point[0]].ld_areas[self.drag_point[1]] == "V":
                     tgt_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.view_pix_size / self.loaded_map.pix_size).astype(int)
@@ -197,16 +203,16 @@ class TargetGUI:
                 node_id = utils.findIndex(self.plot.draw_nodes, "label", f"tgt_{self.drag_point[0]}_{self.drag_point[1]}")
                 if node_id is None:
                     node_id = utils.findIndex(self.plot.draw_nodes, "label", f"track_{self.drag_point[0]}_{self.drag_point[1]}")
-                self.plot.shiftDrawNode(node_id, mouse_coords - self.drag_start)
+                self.plot.shiftDrawNode(node_id, mouse_coords - self.drag_mouse_start)
 
             else:
-                # Update geo point coords
+                # Update geo point coords by drag offset (keeps grab position relative to point, matching the drawn overlay)
                 for area in self.targets.areas:
-                    area.geo_points[self.drag_point] = self.loaded_map.microns2px(mouse_coords)
+                    area.geo_points[self.drag_point] = self.drag_point_start + delta
 
                 # Move geo point overlay without redrawing all targets
                 node_id = utils.findIndex(self.plot.draw_nodes, "label", f"geo_0_{self.drag_point}")
-                self.plot.shiftDrawNode(node_id, mouse_coords - self.drag_start)
+                self.plot.shiftDrawNode(node_id, mouse_coords - self.drag_mouse_start)
 
 
     def mouseRelease(self, sender, app_data):
@@ -222,13 +228,14 @@ class TargetGUI:
             return
 
         # Reset drag tracking
-        if self.drag_point is not None and self.drag_start is not None:
+        if self.drag_point is not None and self.drag_mouse_start is not None:
             # Update point within area (also updates area center if tracking target)
             if isinstance(self.drag_point, list):
                 self.targets.areas[self.drag_point[0]].updatePoint(self.drag_point[1], self.targets.areas[self.drag_point[0]].points[self.drag_point[1]])
 
             self.drag_point = None
-            self.drag_start = None
+            self.drag_mouse_start = None
+            self.drag_point_start = None
             self.showTargets()
             self.menu_right.showElements(["butsave"])
 
@@ -1894,7 +1901,8 @@ class TargetGUI:
         self.status = None
 
         self.drag_point = None # Keep track of target being dragged
-        self.drag_start = None # Keep track of drag start position
+        self.drag_mouse_start = None # Mouse position (microns) when drag began, to measure mouse travel
+        self.drag_point_start = None # Dragged point's own position (px) when drag began, base for the new position
 
         self.executor = concurrent.futures.ThreadPoolExecutor()
         self.preloaded_data = None      # Map data to be preloaded
