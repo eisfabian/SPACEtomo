@@ -121,47 +121,55 @@ class TargetGUI:
             rec_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.rec_pix_size / self.loaded_map.pix_size).astype(int) 
             focus_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.focus_pix_size / self.loaded_map.pix_size).astype(int) 
             
-            # Check if target is in range
-            closest_point_id, in_range = self.targets.getClosestPoint(img_coords, rec_dims / 2)
-            if in_range:
-                self.drag_point = closest_point_id
+            # Check if target and/or geo point are in range (clickable areas match each plotted FOV)
+            tgt_id, tgt_in_range = self.targets.getClosestPoint(img_coords, self.getLDAreaThresholds())
+            geo_id, geo_in_range = self.targets.getClosestGeoPoint(img_coords, focus_dims / 2)
+
+            # If both are in range, prefer whichever point is actually closer to the click
+            if tgt_in_range and geo_in_range:
+                tgt_dist = np.linalg.norm(self.targets.areas[tgt_id[0]].points[tgt_id[1]] - img_coords)
+                geo_dist = np.linalg.norm(self.targets.areas[0].geo_points[geo_id] - img_coords)
+                if geo_dist < tgt_dist:
+                    tgt_in_range = False
+                else:
+                    geo_in_range = False
+
+            if tgt_in_range:
+                self.drag_point = tgt_id
                 #log(f"DEBUG: Drag point {self.drag_point} selected at {self.targets.areas[self.drag_point[0]].points[self.drag_point[1]]}")
                 self.drag_start = mouse_coords
                 #log(f"DEBUG: Drag start at {self.drag_start}")
 
+            elif geo_in_range:
+                self.drag_point = geo_id
+                #log(f"DEBUG: Drag geo point {self.drag_point} selected at {self.targets.areas[0].geo_points[self.drag_point]}")
+                self.drag_start = mouse_coords
+                #log(f"DEBUG: Drag start at {self.drag_start}")
+
             else:
-                # Check if geo point is in range
-                closest_point_id, in_range = self.targets.getClosestGeoPoint(img_coords, focus_dims / 2)
-                if in_range:
-                    self.drag_point = closest_point_id
-                    #log(f"DEBUG: Drag geo point {self.drag_point} selected at {self.targets.areas[0].geo_points[self.drag_point]}")
-                    self.drag_start = mouse_coords
-                    #log(f"DEBUG: Drag start at {self.drag_start}")
-
                 # Check if suggestion is in range
-                else:
-                    closest_point_id, in_range = self.targets.getClosestSuggestion(img_coords, rec_dims / 2)
-                    if in_range:
-                        self.targets.addTarget(self.targets.suggestions[closest_point_id])
-                        if self.hole_mode:
-                            self.suggestHolePattern()
-                        elif self.dense_mode:
-                            self.suggestDensePattern()
-                        self.showTargets()
-                        self.showTargetAreaButtons()
-                        self.menu_right.showElements(["butsave"])
+                closest_point_id, in_range = self.targets.getClosestSuggestion(img_coords, rec_dims / 2)
+                if in_range:
+                    self.targets.addTarget(self.targets.suggestions[closest_point_id])
+                    if self.hole_mode:
+                        self.suggestHolePattern()
+                    elif self.dense_mode:
+                        self.suggestDensePattern()
+                    self.showTargets()
+                    self.showTargetAreaButtons()
+                    self.menu_right.showElements(["butsave"])
 
-                    # Add polygon if in polygon mode
-                    else:
-                        if self.polygon_mode:
-                            if self.plot.boxes:
-                                for b, box in reversed(list(enumerate(self.plot.boxes))):
-                                    if isinstance(box, PlotPolygon) and box.open:
-                                        box.addPoint(mouse_coords)
-                                        return
-                            
-                            self.plot.boxes.append(PlotPolygon(mouse_coords, parent=self.plot.plot, color=gui.COLORS["geo"], thickness=0.1))
-                            self.plot.boxes[-1].draw()
+                # Add polygon if in polygon mode
+                else:
+                    if self.polygon_mode:
+                        if self.plot.boxes:
+                            for b, box in reversed(list(enumerate(self.plot.boxes))):
+                                if isinstance(box, PlotPolygon) and box.open:
+                                    box.addPoint(mouse_coords)
+                                    return
+
+                        self.plot.boxes.append(PlotPolygon(mouse_coords, parent=self.plot.plot, color=gui.COLORS["geo"], thickness=0.1))
+                        self.plot.boxes[-1].draw()
 
     def mouseDrag(self, sender, app_data):
         """Handles update on mouse drag."""
@@ -699,6 +707,12 @@ class TargetGUI:
 
         return selected_cats
 
+    def getLDAreaThresholds(self):
+        """Returns dict mapping each low dose area to its half FOV dimensions (in map px) for hit-testing."""
+
+        pix_sizes = {"R": self.mic_params.rec_pix_size, "V": self.mic_params.view_pix_size, "S": self.mic_params.search_pix_size}
+        return {area: (self.mic_params.cam_dims[[1, 0]] * pix_size / self.loaded_map.pix_size) / 2 for area, pix_size in pix_sizes.items()}
+
     def showTargets(self):
         """Updates target overlays on plot."""
 
@@ -840,11 +854,10 @@ class TargetGUI:
             img_coords = self.loaded_map.microns2px(mouse_coords)
 
             # Get camera dims
-            rec_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.rec_pix_size / self.loaded_map.pix_size).astype(int) 
-            focus_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.focus_pix_size / self.loaded_map.pix_size).astype(int) 
+            focus_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.focus_pix_size / self.loaded_map.pix_size).astype(int)
 
-            # Check if coords are too close to existing point
-            closest_point_id, in_range = self.targets.getClosestPoint(img_coords, rec_dims / 2)
+            # Check if coords are too close to existing point (range matches each target's plotted FOV)
+            closest_point_id, in_range = self.targets.getClosestPoint(img_coords, self.getLDAreaThresholds())
 
             if in_range:
                 dpg.set_value("tt_heading", "Target information:")
@@ -892,11 +905,8 @@ class TargetGUI:
     def showTargetMenu(self, img_coords):
         """Configures target menu when right clicking on point."""
 
-        # Get camera dims
-        rec_dims = (self.mic_params.cam_dims[[1, 0]] * self.mic_params.rec_pix_size / self.loaded_map.pix_size).astype(int) 
-
-        # Check if coords are too close to existing point
-        closest_point_id, in_range = self.targets.getClosestPoint(img_coords, rec_dims / 2)
+        # Check if coords are too close to existing point (range matches each target's plotted FOV)
+        closest_point_id, in_range = self.targets.getClosestPoint(img_coords, self.getLDAreaThresholds())
 
         if in_range:
             dpg.set_value(self.menu_tgt.all_elements["heading_txt"], "Target information:")

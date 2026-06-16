@@ -145,24 +145,45 @@ class Targets:
         return points, ids
 
     def getClosestPoint(self, coords, threshold):
-        """Finds closest point and checks if distance within threshold."""
+        """Finds closest point and checks if distance within threshold.
+
+        threshold can be a scalar/array applied to all points, or a dict mapping
+        each low dose area ("R", "V", "S") to its own scalar/array threshold so that
+        the clickable range matches the plotted FOV of each target.
+        """
 
         points, point_ids = self.getAllPoints()
-        # Check for point within range
-        if len(points) > 0:
-            closest_id = np.argmin(np.linalg.norm(points - coords, axis=1))
-
-            # Check if distance is within threshold
-            if isinstance(threshold, np.number):
-                valid = np.linalg.norm(points[closest_id] - coords) < threshold
-            elif isinstance(threshold, np.ndarray):
-                valid = np.all(np.abs(points[closest_id] - coords) < threshold)
-            else:
-                log(f"WARNING: Invalid threshold type for closest point {type(threshold)}! Need float or array!")
-                return None, False
-            return point_ids[closest_id], valid
-        else:
+        if len(points) == 0:
             return None, False
+
+        diffs = points - coords
+        dists = np.linalg.norm(diffs, axis=1)
+
+        def within(idx):
+            # Resolve per-area threshold if a dict was passed
+            if isinstance(threshold, dict):
+                thr = threshold[self.areas[point_ids[idx][0]].ld_areas[point_ids[idx][1]]]
+            else:
+                thr = threshold
+
+            if isinstance(thr, np.ndarray):
+                return np.all(np.abs(diffs[idx]) < thr)
+            elif isinstance(thr, np.number) or np.isscalar(thr):
+                return dists[idx] < thr
+            else:
+                log(f"WARNING: Invalid threshold type for closest point {type(thr)}! Need float or array!")
+                return None
+
+        # Prefer the closest point whose own threshold contains the coords (handles overlapping non-Record FOVs)
+        for idx in np.argsort(dists):
+            valid = within(idx)
+            if valid is None:
+                return None, False
+            if valid:
+                return point_ids[idx], True
+
+        # No point in range: return the overall closest as not valid
+        return point_ids[int(np.argmin(dists))], False
 
     def getClosestArea(self, coords):
         """Finds area with closest tracking point."""
