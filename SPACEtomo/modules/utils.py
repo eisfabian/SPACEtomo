@@ -3,7 +3,8 @@
 # Purpose:      Functions for utilities needed by other packages and scripts.
 # Author:       Fabian Eisenstein
 # Created:      2024/07/18
-# Last Change:  2026/03/06: fixed castString function for Windows, added file check functions
+# Last Change:  2026/06/28: keep fast toNumpy path on newer Pillow by passing setimage extents
+#               2026/03/06: fixed castString function for Windows, added file check functions
 #               2025/02/12: added alignCC
 #               2025/01/22: added Path handling to json, added breakpoint
 #               2024/09/24: updated log to handle debug and line breaks
@@ -180,7 +181,11 @@ def toNumpy(img):
     # unpack data using fast low-level path; fall back to np.array for newer Pillow
     try:
         e = Image._getencoder(img.mode, 'raw', img.mode)
-        e.setimage(img.im)
+        try:
+            e.setimage(img.im)
+        except TypeError:
+            # newer Pillow requires the extents argument
+            e.setimage(img.im, (0, 0) + img.size)
 
         # NumPy buffer for the result
         shape, typestr = Image._conv_type_shape(img)
