@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
 # Revision:     v1.3
-# Last Change:  2025/04/08: added tracking centering upon splitting areas
+# Last Change:  2026/07/10: scale virtual _view.mrc maps to View pixel size for non-View montages
+#               2025/04/08: added tracking centering upon splitting areas
 #               2025/01/30: added rectangular search threshold, small fixes
 #               2024/09/02: fixed area name not considered when preparing targets
 #               2024/08/19: added virtual map creation, nav preparation, target export
@@ -22,6 +23,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import minimize
 from scipy.cluster.vq import kmeans2
+from skimage import transform
 
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules.buf import Buffer
@@ -685,12 +687,25 @@ class PACEArea(TargetArea):
         # Convert to buffer pix size
         self.scaleCoordsBuffer()
 
+        # Virtual maps are always saved at View pixel size, regardless of the montage's LD area
+        view_pix_size = self.imaging_params.view_pix_size
+        map_pix_size = self.map_buffer.pix_size
+        target_dims = np.flip(self.imaging_params.cam_dims)                          # output dims (one View frame, px)
+        crop_fov = np.round(target_dims * view_pix_size / map_pix_size).astype(int)  # montage px spanning that frame
+
         for p, point in enumerate(self.points):
             # Make virtual map from montage in buffer
             virt_map_file = map_file.parent / (area_name + "_tgt_" + str(p + 1).zfill(3) + "_view.mrc")
-            virt_map = np.flip(self.map_buffer.getCropImage(point, np.flip(self.imaging_params.cam_dims)), axis=0)       # crop image and flip y-axis
+            virt_map = np.flip(self.map_buffer.getCropImage(point, crop_fov), axis=0)       # crop image and flip y-axis
+            # Rescale to View pixel size if the montage was not collected in View mode (e.g. Search)
+            if not np.array_equal(crop_fov, target_dims):
+                virt_map = transform.resize(
+                    virt_map, target_dims,
+                    preserve_range=True,
+                    anti_aliasing=(map_pix_size < view_pix_size),   # only when downscaling
+                ).astype(virt_map.dtype)
             log(f"DEBUG: Virtual map dimenstions: {virt_map.shape}")
-            utils.writeMrc(virt_map_file, virt_map, self.map_buffer.pix_size)
+            utils.writeMrc(virt_map_file, virt_map, view_pix_size)
 
             # Add map to navigator
             nav_id = nav.newMapFromImg(img_file=virt_map_file, template_id=template_id, coords=self.points_stage[p], label=str(p + 1).zfill(3), note=virt_map_file.name)

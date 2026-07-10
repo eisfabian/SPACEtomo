@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
+# Last Change:  2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
+#               2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
 #               2026/02/22: made checkAutoloader work with both Thermo and JEOL
 #               2026/02/22: changed aperture commands to also work with JEOL
 #               2025/05/31: added search params
@@ -885,6 +886,21 @@ class ImagingParams:
                 setattr(self, f"focus_{attr}", getattr(self, f"rec_{attr}"))
             if getattr(self, f"search_{attr}") is None and getattr(self, f"view_{attr}") is not None:
                 setattr(self, f"search_{attr}", getattr(self, f"view_{attr}"))
+
+    def checkMapArea(self, map_pix_size, tol=0.05):
+        """Identifies whether a manually collected map matches the View or Search LD area by pixel size.
+
+        Returns "V", "S", or None (and logs a warning) if it matches neither.
+        tol is the allowed fractional deviation in pixel size.
+        """
+        for area, area_pix_size in (("V", self.view_pix_size), ("S", self.search_pix_size)):
+            if area_pix_size is not None and abs(map_pix_size - area_pix_size) / area_pix_size <= tol:
+                log(f"NOTE: Map pixel size ({map_pix_size:.3f} nm/px) matches {area} mode.")
+                return area
+        log(f"WARNING: Map pixel size ({map_pix_size:.3f} nm/px) matches neither View "
+            f"({self.view_pix_size} nm/px) nor Search ({self.search_pix_size} nm/px) mode! "
+            f"Manual target setup assumes a View or Search montage — geometry and virtual maps may be inaccurate.")
+        return None
 
     @dummy_skip
     @serialem_check

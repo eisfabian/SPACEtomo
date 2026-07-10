@@ -5,7 +5,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2025/03/21: fixed map naming
+# Last Change:  2026/07/10: warn if manual map pixel size matches neither View nor Search mode
+#               2025/03/21: fixed map naming
 #               2025/02/17: added handling of multiple maps
 #               2025/01/09: created
 # ===================================================================
@@ -170,6 +171,7 @@ def main():
         # Save montage as rescaled input image
         log(f"Saving map image for {map_name}...")
         map_img = Buffer(nav_id=map_id)
+        imaging_params.checkMapArea(map_img.pix_size)   # warn if map is neither View nor Search
         map_img.findGrid()
         save_future = map_img.saveImg(MAP_DIR / (map_name + ".png"), target_pix_size=MM_model.pix_size if settings["rescale_map"] else None)
         if save_future is not None:
