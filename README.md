@@ -96,7 +96,7 @@ NOTE: If the installation fails, you can try `SPACEtomo[gui]` or only `SPACEtomo
 4. Copy this folder to the SerialEM computer.
 5. On the SerialEM computer, open the command prompt and activate the virtual environment with `<path_to_your_venv>\Scripts\activate.bat`.
 6. Navigate to the folder containing the downloaded Python packages and ensure it does not contain anything else!
-6. In this folder on the SerialEM computer, run: 
+7. In this folder on the SerialEM computer, run: 
 
 ```
 FOR %i in (*) DO python -m pip install --no-deps --no-build-isolation %i
@@ -256,19 +256,59 @@ The usage instructions for SPACEtomo assume that [PACEtomo](https://github.com/e
 
 ### Preparation
 
-SPACEtomo requires the setup of at least 3 image states in the SerialEM navigator. 
+SPACEtomo requires the setup of at least 3 imaging states in the SerialEM navigator. 
 
-- One image state for whole grid montages (LM maps), at a pixel size <400 nm/px (including binning).
-- One image state at intermediate mag (IM), usually around 580x, required to compensate for the coordinate shifts between the low mag and the View mag. This magnification should contain the lamella fully in the FOV when moving the stage to a position on the LM map and it should be fairly well aligned to the View mag.
-- One Low Dose mode image state with a View magnification for lamella montages (MM maps), ideally at pixel sizes <2.2 nm/px and a defocus offset of 50-100 μm, as well as the desired Record settings for tilt series acquisition. The smaller the beam diameter in Record mode, the more targets can be selected per lamella.
+- One imaging state for whole grid montages (LM maps), at a pixel size <400 nm/px (including binning).
+- One imaging state at intermediate mag (IM), usually around 580x, required to compensate for the coordinate shifts between the low mag and the View mag. This magnification should contain the lamella fully in the FOV when moving the stage to a position on the LM map and it should be fairly well aligned to the View mag.
+- One Low Dose mode imaging state with a View magnification for lamella montages (MM maps), ideally at pixel sizes <2.2 nm/px and a defocus offset of 50-100 μm, as well as the desired Record settings for tilt series acquisition. The smaller the beam diameter in Record mode, the more targets can be selected per lamella.
 
-WARNING: If you name your imaging states in SerialEM, please avoid using numbers in the name. Numbers can confuse SerialEM's *GoToImagingState* command, which takes both, names or indices, as input and prioritizes names.
+WARNING: If you name your imaging states in SerialEM, please avoid using numbers in the name. Numbers can confuse SerialEM's *GoToImagingState* command, which takes both names and indices as input and prioritizes names.
 <details>
-	<summary>Details</summary>
+	<summary>Why three imaging states are needed</summary>
 When selecting and moving to a point on an LM map, then taking a View image, the selected point will most likely not be in the field of view. Usually, I find that point manually and use the <i>Navigator</i> > <i>Shift to Marker</i> function to adjust the coordinates. 
 	
-To automate this, SPACEtomo moves to a lamella found on the LM map and takes an image at IM that needs to fully contain the lamella despite the offset. It then runs the same lamella detection model and shifts the coordinates to the newly found lamella. The jump from the IM to the View magnification in your Low Dose image state should be minimal since no further compensation is applied. 
+To automate this, SPACEtomo moves to a lamella found on the LM map and takes an image at IM that needs to fully contain the lamella despite the offset. It then runs the same lamella detection model and shifts the coordinates to the newly found lamella. The jump from the IM to the View magnification in your Low Dose imaging state should be minimal since no further compensation is applied. 
 </details>
+
+<details>
+	<summary>How to set up the imaging states in SerialEM (step-by-step)</summary>
+
+If you have not worked with imaging states before, here is the procedure I use. The [*Imaging States* dialog](https://bio3d.colorado.edu/SerialEM/hlp/html/hidd_statedlg.htm) usually opens together with the [*Navigator*](https://bio3d.colorado.edu/SerialEM/hlp/html/about_navigator.htm) (*Navigator* > *Open Navigator*). An imaging state stores the microscope settings (magnification, spot size, intensity, probe mode, energy filter and aperture settings) together with the camera parameters of the area it was saved for. The general recipe for every state below is the same:
+
+1. Set up the microscope and the camera parameters manually until an image looks the way you want it.
+2. Press *Add Current State* in the *Imaging States* dialog.
+3. Type a name in the *Name* box (no numbers, see warning above!).
+4. Double click the new line (or use *Selected State* > *Go To*) to test that the state is set correctly. If something is off, fix it and use *Selected State* > *Update*.
+
+**1. LM state for whole grid montages (`WG_image_state`)**
+- Turn Low Dose mode **off** (Low Dose panel).
+- Go to a magnification in the LM range where a montage can cover the whole grid (I use 82x) and set the *Record* binning and exposure such that the pixel size is <400 nm/px.
+- If your sample has poor contrast, consider inserting the energy filter slit for this state.
+- Add the state (see recipe above).
+
+**2. IM state for the alignment step (`IM_image_state`)**
+- Still with Low Dose mode **off**, go to an intermediate magnification (I use 580x) where the whole lamella (or your feature of interest) fits into the field of view even if the stage position is off by the typical low mag to View mag offset.
+- Set binning and exposure to recognize essential features. This image is used for cross-correlation with the LM image to realign your region of interest.
+- Add the state.
+
+**3. MM Low Dose state for lamella montages and acquisition (`MM_image_state`)**
+- Turn Low Dose mode **on**.
+- Set up the *View* area at the magnification you want for the MM maps (I use 4800x) with a pixel size <2.2 nm/px and a defocus offset of 50-100 μm.
+- Set up the *Record* area with the settings you want for the tilt series (this is the same setup you would use for [PACEtomo](https://github.com/eisfabian/PACEtomo)). A smaller beam diameter in *Record* allows more targets per lamella.
+- Set *Focus* and *Trial* offsets to 0 and align the image shift between *Record* and *View* (see recommendations below).
+- Add the state. In Low Dose mode, each area is stored separately, so if you want to keep *View* and *Record* in separate states, add one state while in the *View* area and one while in the *Record* area. You can then pass both to SPACEtomo as a list (`MM_image_state = ["ViewStateName", "RecordStateName"]`).
+
+**Referring to the states in the settings**
+
+`WG_image_state`, `IM_image_state` and `MM_image_state` are passed to SerialEM's *GoToImagingState*, so you can use either the state name or its index in the table (the `#` checkbox in the dialog toggles the display of the indices). Names are more robust against reordering of the table, but must not contain numbers.
+
+**Further reading**
+
+- [Imaging State Dialog](https://bio3d.colorado.edu/SerialEM/hlp/html/hidd_statedlg.htm) and [Low Dose mode](https://bio3d.colorado.edu/SerialEM/hlp/html/about_low_dose.htm) in the SerialEM documentation.
+
+</details>
+
+#### Calibrations and recommended settings
 
 For optimal results, it is recommended to check or redo the "Mag IS Offsets" calibration for the relevant magnifications.
 
@@ -294,9 +334,9 @@ The most important settings for the first setup that remain mostly unchanged fro
 
 | Setting | Description |
 | ------- | ----------- |
-| `WG_image_state` | Image state index used for LM map (grid atlas). |
-| `IM_image_state` | Image state index used for alignment between WG mag and View mag. Typically, ~580x works well for lamellae. |
-| `MM_image_state` | Image state index used for Low Dose mode tilt series acquisition. This can be a list of imaging states to specify imaging states for Record and View separately. |
+| `WG_image_state` | Imaging state index used for LM map (grid atlas). |
+| `IM_image_state` | Imaging state index used for alignment between WG mag and View mag. Typically, ~580x works well for lamellae. |
+| `MM_image_state` | Imaging state index used for Low Dose mode tilt series acquisition. This can be a list of imaging states to specify imaging states for Record and View separately. |
 | `script_numbers` | List of indices of the [[SPACEtomo_run.py](https://github.com/eisfabian/SPACEtomo/tree/main/SPACEtomo/SerialEM_scripts/SPACEtomo_run.py), [SPACEtomo_prepareTargets.py](https://github.com/eisfabian/SPACEtomo/tree/main/SPACEtomo/SerialEM_scripts/SPACEtomo_prepareTargets.py), [PACEtomo.py](https://github.com/eisfabian/PACEtomo/blob/main/PACEtomo.py)] scripts in the SerialEM script editor. |
 
 The settings that will typically change from run to run are:
@@ -542,7 +582,7 @@ Here are some common problems that might occur:
 - If you get an error saying something like `unexpected keyword argument 'perform_everything_on_XXX`:
   - nnUNet changed the name of the argument recently from `perform_everything_on_gpu` to `perform_everything_on_device`.
   - Please try to change it accordingly in the *run_nnUNet.py* script and try running it again.
-- If your tilt series are off target, check if your Record and View mag are aligned in the used image state and consider doing the "High-Defocus IS" calibration for your View mag.
+- If your tilt series are off target, check if your Record and View mag are aligned in the used imaging state and consider doing the "High-Defocus IS" calibration for your View mag.
 - If your lamella is not in the field of view when switching between low mag and intermediate mag or between intermediate mag and View mag, redo the "Mag IS Offsets" calibrations.
 - If SerialEM terminates the script with a montage error concerning an exceeded limit in the Script Control, go to *Scripts* > *Controls* and remove any limits that cause the script to terminate.
 - If SPACEtomo does not detect any lamellae although lamellae are clearly visible on your WG map, try collecting the map with the energy filter slit in to improve contrast. Please also consider sharing your WG maps with me so I can further improve the lamella detection model!
