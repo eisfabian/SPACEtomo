@@ -1,15 +1,18 @@
 # SPACEtomo
 
-Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a Python package and set of SerialEM scripts to fully automate the cryoET data collection workflow.
+Smart Parallel Automated Cryo Electron tomography (SPACEtomo) is a Python package and set of SerialEM scripts to fully automate the cryoET data collection workflow. It can be used in a semi-automatic fashion for full operator control.
+
+Only the fully automated target selection by segmentation is trained on specific samples (Yeast lamellae). On other samples, including purified samples, you can use the same automated montage collection and the drag and drop target selection GUI.
+
 Please refer to the [publication](https://www.nature.com/articles/s41592-024-02373-9) ([pdf](https://rdcu.be/dQlI4)) for more details.
 
 <img src="https://github.com/eisfabian/SPACEtomo/raw/main/img/SPACEtomo_logo.png" width="600" alt="SPACEtomo" />
 
 ## Use cases
 
-SPACEtomo allows for a variety of automation levels applicable to a range of samples.
+SPACEtomo allows for a variety of automation levels applicable to a range of samples (lamellae and non-lamellae).
 
-- Automated whole grid montage acquisition, lamella detection and medium mag lamella montage collection is **sample independent** and can be run using a multi-grid workflow.
+- Automated whole grid montage acquisition, lamella detection (optional) and medium mag montage collection is **sample independent** and can be run using a multi-grid workflow.
 - Manual target selection using a user-friendly drag and drop user interface **(sample independent)**.
 - Automated target selection based on segmentation of biological classes in Yeast.
 
