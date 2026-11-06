@@ -1,2 +1,2 @@
-__version__ = "1.3.1b35"
+__version__ = "1.3.1"
 version_SerialEM = ("40200", "20250228")

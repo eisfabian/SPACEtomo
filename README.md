@@ -225,11 +225,11 @@ Optional: You can also copy the [SPACEtomo_lamellaDetectionGUI.py](https://githu
 
 If you want to update SPACEtomo to the latest version, simply activate your virtual environment and run:
 
-    pip install SPACEtomo
+    pip install -U SPACEtomo
 
 with network connection or:
 
-    pip install --proxy <proxy_address> SPACEtomo
+    pip install -U --proxy <proxy_address> SPACEtomo
 
 using a proxy.
 
@@ -594,6 +594,21 @@ Here are some common problems that might occur:
 If you could not resolve the issue yourself or you encountered a bug, please report it to the [GitHub Issues](https://github.com/eisfabian/SPACEtomo/issues) page or send an email to [spacetomo.help@gmail.com](mailto:spacetomo.help@gmail.com).
 
 ## Recent Changes
+
+### Version 1.3.1 (06.11.2026)
+- Settings GUI with imaging state query and session directory query.
+- Target selection using Low Dose areas, and Search parameters for target setup.
+- Support for JEOL instruments (autoloader and aperture control).
+- Support for sorting MRC stacks.
+- GUI improvements (faster target overlays, tooltips, popups).
+- Documentation for BIGSMALL and step-by-step imaging state setup.
+- Fixed missing Low Dose areas in external target setup (#9).
+- Fixed missing GUI icons in the PyPI package.
+- Fixed IM alignment shifting all navigator items when aligning the last ROI.
+- Fixed external runs not monitoring the external processing queue.
+- Fixed crash when preparing targets for new point files in the post action.
+- Fixed crash when clearing a saved session directory that no longer exists.
+- Lots of other bug fixes.
 
 ### Version 1.3 (27.03.2025)
 - GUI improvements and bug fixes.
