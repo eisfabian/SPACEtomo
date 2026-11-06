@@ -595,7 +595,7 @@ If you could not resolve the issue yourself or you encountered a bug, please rep
 
 ## Recent Changes
 
-### Version 1.3.2 (06.11.2026)
+### Version 1.3.1 (06.11.2026)
 - Settings GUI with imaging state query and session directory query.
 - Target selection using Low Dose areas, and Search parameters for target setup.
 - Support for JEOL instruments (autoloader and aperture control).
