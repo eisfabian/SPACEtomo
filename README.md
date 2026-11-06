@@ -595,7 +595,7 @@ If you could not resolve the issue yourself or you encountered a bug, please rep
 
 ## Recent Changes
 
-### Version 1.3.1 (06.11.2026)
+### Version 1.3.2 (06.11.2026)
 - Settings GUI with imaging state query and session directory query.
 - Target selection using Low Dose areas, and Search parameters for target setup.
 - Support for JEOL instruments (autoloader and aperture control).
@@ -604,6 +604,7 @@ If you could not resolve the issue yourself or you encountered a bug, please rep
 - Documentation for BIGSMALL and step-by-step imaging state setup.
 - Fixed missing Low Dose areas in external target setup (#9).
 - Fixed missing GUI icons in the PyPI package.
+- Fixed GUI crash on Python installations without tkinter.
 - Fixed IM alignment shifting all navigator items when aligning the last ROI.
 - Fixed external runs not monitoring the external processing queue.
 - Fixed crash when preparing targets for new point files in the post action.
