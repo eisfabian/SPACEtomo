@@ -58,5 +58,10 @@ Issues = "https://github.com/eisfabian/SPACEtomo/issues"
 [tool.setuptools.dynamic]
 version = {attr = "SPACEtomo.__version__"}
 
-[tool.setuptools.packages]
-find = {}
+[tool.setuptools.packages.find]
+include = ["SPACEtomo*"]
+exclude = ["SPACEtomo.models*", "tests*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+SPACEtomo = ["img/*.png"]
