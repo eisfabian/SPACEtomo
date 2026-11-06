@@ -122,6 +122,8 @@ def getLowDoseParams(area: str):
     except sem.SEMerror:
         log(f"ERROR: Could not retrieve low dose parameters without switching to them! Consider updating SerialEM to the latest version to speed this up!")
         return None
+    finally:
+        sem.EndTry()
 
     # LowDoseParameters:
     # There are three sets of parameters, for TEM, EFTEM, and STEM.
@@ -189,7 +191,7 @@ def getSessionDir():
         ses_dir = Path(sem.GetVariable("ses_dir"))
         if not ses_dir.exists():
             log(f"ERROR: Session directory [{ses_dir}] does not exist! Please run SPACEtomo again to choose a new directory.")
-            sem.CLearPersistentVars()
+            sem.ClearPersistentVars()
             sem.Exit()
         setDirectory(ses_dir)
 
