@@ -274,3 +274,42 @@ def test_prepTargets_picks_up_new_point_files(monkeypatch, tmp_path):
 
     prep.main()
     assert set_up == ["G01_L02_points0.json"]
+
+
+# --- Pillow compatibility of toNumpy ---
+
+@pytest.mark.parametrize("mode", ["L", "RGB", "I;16", "F"])
+def test_toNumpy_matches_np_array(mode):
+    from PIL import Image
+    from SPACEtomo.modules import utils
+
+    base = np.random.default_rng(0).integers(0, 255, (37, 53), dtype=np.uint8)
+    arr = {"L": base, "RGB": np.dstack([base] * 3), "I;16": base.astype(np.uint16) * 200, "F": base.astype(np.float32) / 7}[mode]
+    img = Image.fromarray(arr)
+
+    np.testing.assert_array_equal(utils.toNumpy(img), np.array(img))
+
+
+def test_toNumpy_handles_setimage_requiring_extents(monkeypatch):
+    """Pillow 13 made the extents argument of ImagingEncoder.setimage mandatory."""
+    from PIL import Image
+    from SPACEtomo.modules import utils
+
+    img = Image.fromarray(np.arange(37 * 53, dtype=np.uint8).reshape(37, 53))
+    expected = np.array(img)    # np.array uses the encoder internally, so compute before patching
+
+    real_getencoder = Image._getencoder
+
+    class StrictEncoder:
+        def __init__(self, encoder):
+            self._encoder = encoder
+
+        def setimage(self, im, extents):
+            return self._encoder.setimage(im, extents)
+
+        def encode(self, bufsize):
+            return self._encoder.encode(bufsize)
+
+    monkeypatch.setattr(Image, "_getencoder", lambda *args: StrictEncoder(real_getencoder(*args)))
+
+    np.testing.assert_array_equal(utils.toNumpy(img), expected)
