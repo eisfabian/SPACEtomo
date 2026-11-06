@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/07/13
 # Revision:     v1.2
-# Last Change:  2024/09/04: converted settings to configparser
+# Last Change:  2026/11/06: fixed crash when collecting new point files
+#               2024/09/04: converted settings to configparser
 #               2024/08/21: made callable
 #               2024/08/20: adjusted to refactor
 #               2024/04/10: fixed typo
@@ -94,7 +95,7 @@ def main():
 
             # Get point files that were not found previously
             point_files_new = sorted(MAP_DIR.glob("*_points*.json"))
-            unprocessed_point_files = point_files_new - point_files
+            unprocessed_point_files = [file for file in point_files_new if file not in point_files]
 
     # Set up targets for unprocessed point_files
     for point_file in unprocessed_point_files:
