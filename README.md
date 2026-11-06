@@ -605,6 +605,7 @@ If you could not resolve the issue yourself or you encountered a bug, please rep
 - Fixed missing Low Dose areas in external target setup (#9).
 - Fixed missing GUI icons in the PyPI package.
 - Fixed GUI crash on Python installations without tkinter.
+- Fixed GUI crash when loading maps with Pillow 13.
 - Fixed IM alignment shifting all navigator items when aligning the last ROI.
 - Fixed external runs not monitoring the external processing queue.
 - Fixed crash when preparing targets for new point files in the post action.
