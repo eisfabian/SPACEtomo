@@ -240,10 +240,6 @@ def SetPersistentVar(name, value):
 def ClearPersistentVars():
     _state.persistent_vars.clear()
 
-def CLearPersistentVars():
-    """Alias for the typo variant used in some scripts."""
-    ClearPersistentVars()
-
 
 # ---------------------------------------------------------------------------
 # User settings & properties
