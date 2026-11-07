@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2024/12/23: Updated shiftItems function to not use sem
+# Last Change:  2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
+#               2024/12/23: Updated shiftItems function to not use sem
 #               2024/09/04: added newPolygon function
 #               2024/08/23: allowed creation of minimal map without template
 #               2024/08/19: added creation of new map and point items
@@ -223,8 +224,16 @@ class NavItem:
         coords = np.array(coords)
         return coords[:2] - self.stage[:2]
     
-    def createMap(self, template, stage, file, map_id, note=""):
-        """Creates new map item from image file and template."""
+    def createMap(self, template, stage, file, map_id, note="", entry_overrides=None):
+        """Creates new map item from image file and template.
+
+        entry_overrides: optional dict of nav entries (values as lists of str) to override
+        after copying from the template. Use for maps that differ from the template LD area
+        (e.g. virtual View maps cropped from a Search montage). "MapScaleMat" is also honored
+        for the corner-point geometry, not just the stored entry.
+        """
+
+        entry_overrides = entry_overrides or {}
 
         with mrcfile.open(file) as mrc:
             min_max_scale = [str(np.min(mrc.data)), str(np.max(mrc.data))]
@@ -238,10 +247,15 @@ class NavItem:
         if len(stage) < 3:
             stage = np.array([stage[0], stage[1], template.stage[2]])
 
+        # Determine stage-to-pixel scale matrix (overridable for maps resampled to a different pixel size)
+        if "MapScaleMat" in entry_overrides:
+            map_scale_mat = np.array(entry_overrides["MapScaleMat"], dtype=np.float32).reshape((2, 2))
+        else:
+            map_scale_mat = np.array(template.entries["MapScaleMat"], dtype=np.float32).reshape((2, 2)) * float(template.entries["MapBinning"][0]) / float(template.entries["MontBinning"][0])
+
         # Calculate point coords using dimensions and inverse of MapScaleMat matrix
         points = np.array([[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]]) * dims
-        map_scale_mat = np.array(template.entries["MapScaleMat"], dtype=np.float32).reshape((2, 2)) * float(template.entries["MapBinning"][0]) / float(template.entries["MontBinning"][0])
-        px2stage = np.linalg.inv(map_scale_mat) 
+        px2stage = np.linalg.inv(map_scale_mat)
         points = np.array([px2stage @ point for point in points]) + stage[:2]
         pts_x, pts_y = points[:, 0], points[:, 1]
 
@@ -273,6 +287,10 @@ class NavItem:
         for entry in other_entries:
             if entry in template.entries.keys():
                 self.entries[entry] = template.entries[entry]
+
+        # Apply caller overrides last (e.g. View mag/ConSet for virtual maps cropped from a Search montage)
+        for key, value in entry_overrides.items():
+            self.entries[key] = value
 
         self.entries["PtsX"] = [str(pt) for pt in pts_x]
         self.entries["PtsY"] = [str(pt) for pt in pts_y]
@@ -597,7 +615,7 @@ class Navigator:
 
         return nav_id
     
-    def newMapFromImg(self, buffer=None, img_file="", template_id=None, coords=(0, 0, 0), label="", note="", **kwargs):      # Only accept keyword args to make compatible with newMap
+    def newMapFromImg(self, buffer=None, img_file="", template_id=None, coords=(0, 0, 0), label="", note="", entry_overrides=None, **kwargs):      # Only accept keyword args to make compatible with newMap
         """Makes new map from image file without SerialEM."""
 
         if template_id is not None:     # If template is None, a minimal template with default values will be used
@@ -615,7 +633,7 @@ class Navigator:
                 log(f"ERROR: No image file or buffer was given to create map from!")
 
         nav_item = NavItem(len(self), label=label)
-        nav_item.createMap(template, coords, img_file, self.map_id_counter, note)
+        nav_item.createMap(template, coords, img_file, self.map_id_counter, note, entry_overrides=entry_overrides)
         self.map_id_counter += 1
 
         self.items.append(nav_item)
