@@ -313,3 +313,34 @@ def test_toNumpy_handles_setimage_requiring_extents(monkeypatch):
     monkeypatch.setattr(Image, "_getencoder", lambda *args: StrictEncoder(real_getencoder(*args)))
 
     np.testing.assert_array_equal(utils.toNumpy(img), expected)
+
+
+# --- PyTorch cap must stay installable on new Python versions ---
+
+@pytest.mark.parametrize("extra", ["predict", "ti"])
+@pytest.mark.parametrize("package, capped, first_new", [("torch", "2.8.0", "2.9.0"), ("torchvision", "0.23.0", "0.24.0")])
+@pytest.mark.parametrize("python_version", ["3.9", "3.11", "3.12", "3.13", "3.14", "3.15"])
+def test_torch_cap_only_below_python_314(python_version, package, capped, first_new, extra):
+    """K3 computers need torch<2.9, but Python 3.14 has no torch<2.9 wheels: an unconditional cap made pip fall back to SPACEtomo 1.3.0."""
+    from packaging.requirements import Requirement
+
+    reqs = [Requirement(r) for r in _pyproject()["project"]["optional-dependencies"][extra]]
+    env = {"python_version": python_version, "python_full_version": python_version + ".0", "extra": extra}
+    active = [r for r in reqs if r.name == package and (r.marker is None or r.marker.evaluate(env))]
+    if not active and not any(r.name == package for r in reqs):
+        pytest.skip(f"{package} not in {extra} extra")
+
+    assert len(active) == 1
+    if tuple(map(int, python_version.split("."))) < (3, 14):
+        assert active[0].specifier.contains(capped) and not active[0].specifier.contains(first_new)
+    else:
+        assert active[0].specifier.contains(first_new)
+
+
+def test_setup_py_predict_matches_pyproject():
+    tree = ast.parse((REPO / "setup.py").read_text())
+    setup_call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "setup")
+    extras = ast.literal_eval(next(k.value for k in setup_call.keywords if k.arg == "extras_require"))
+    torch_reqs = lambda reqs: sorted(r.replace(" ", "") for r in reqs if r.startswith("torch"))
+
+    assert torch_reqs(extras["predict"]) == torch_reqs(_pyproject()["project"]["optional-dependencies"]["predict"])

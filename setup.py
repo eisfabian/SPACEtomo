@@ -51,8 +51,10 @@ setup(
             "dearpygui>=1.10.0; python_version>='3.9'",
             ],
         "predict": [
-            "torch>=2.2.0,<2.9.0; python_version>='3.9'", 
-            "torchvision>=0.17.0,<0.24.0; python_version>='3.9'", 
+            "torch>=2.2.0,<2.9.0; python_version>='3.9' and python_version<'3.14'", 
+            "torch>=2.9.0; python_version>='3.14'", 
+            "torchvision>=0.17.0,<0.24.0; python_version>='3.9' and python_version<'3.14'", 
+            "torchvision>=0.24.0; python_version>='3.14'", 
             "nnunetv2>=2.2.1; python_version>='3.9'", 
             "ultralytics>=8.1.12; python_version>='3.9'",
             "ultralytics>=8.1.12,<8.3.10; python_version=='3.9'",
