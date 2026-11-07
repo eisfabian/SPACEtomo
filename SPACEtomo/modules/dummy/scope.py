@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/09/02
 # Revision:     v1.3
-# Last Change:  2026/07/17: added mag_index property to mirror real Microscope
+# Last Change:  2026/11/07: fixed imaging state/beam/tilt bugs, int16 images, shared lamella generation
+#               2026/07/17: added mag_index property to mirror real Microscope
 #               2025/03/04: updated to make dummy run work again
 #               2024/09/02: separated from modules/scope.py
 # ===================================================================
@@ -64,6 +65,53 @@ cats_intensity = {
 }
 #
 ### END SETTINGS ###
+
+
+def _toCounts(img, mean_counts=2000):
+    """Converts a relative intensity image (0-1) into int16 camera counts, as stored in real maps."""
+    return np.clip(img * 2 * mean_counts, 0, np.iinfo(np.int16).max).astype(np.int16)
+
+def _addNoise(img, fraction=0.25):
+    """Multiplies image with uniform noise (fraction of intensity)."""
+    return img * (1 - fraction + fraction * np.random.rand(*img.shape).astype(np.float32))
+
+def _lamellaStamp(lamella_dims_px, transpose=False):
+    """Lamella as seen at low mag: ice slab (0.5) between two milled trenches (1.0) in a 2x larger patch (0.25)."""
+    width, height = int(lamella_dims_px[0]), int(lamella_dims_px[1])
+    stamp = np.full((height * 2, width * 2), 0.25, dtype=np.float32)
+    rows = slice((stamp.shape[0] - height) // 2, (stamp.shape[0] + height) // 2)
+    cols = slice((stamp.shape[1] - width) // 2, (stamp.shape[1] + width) // 2)
+    stamp[rows, cols] = 0.5
+    stamp[:rows.start, cols] = 1
+    stamp[rows.stop:, cols] = 1
+    return stamp.T if transpose else stamp
+
+def _placeStamp(img, stamp, top_left):
+    """Pastes stamp into img at top_left (row, col), clipped to the image bounds."""
+    r0, c0 = max(0, int(top_left[0])), max(0, int(top_left[1]))
+    r1, c1 = min(img.shape[0], int(top_left[0]) + stamp.shape[0]), min(img.shape[1], int(top_left[1]) + stamp.shape[1])
+    if r1 > r0 and c1 > c0:
+        img[r0:r1, c0:c1] = stamp[r0 - int(top_left[0]):r1 - int(top_left[0]), c0 - int(top_left[1]):c1 - int(top_left[1])]
+
+def _gridImage(shape, pix_size, lamella_dims_um, transpose, grid_pitch_um=100, n_lamellae=None, margin_squares=1):
+    """Grid squares (0.25) separated by bars (0) with lamellae centred in random grid squares (never on bars)."""
+    img = np.full(shape, 0.25, dtype=np.float32)
+    pitch = grid_pitch_um / pix_size * 1000
+    bar_width = pitch / 3
+    for i in range(int(max(shape) / pitch) + 1):
+        img[:, int(i * pitch): int(i * pitch + bar_width)] = 0
+        img[int(i * pitch): int(i * pitch + bar_width), :] = 0
+
+    stamp = _lamellaStamp(np.array(lamella_dims_um) / pix_size * 1000, transpose)
+    squares = [(r, c) for r in range(margin_squares, int(shape[0] / pitch) - margin_squares) for c in range(margin_squares, int(shape[1] / pitch) - margin_squares)]
+    if n_lamellae is None:
+        n_lamellae = np.random.randint(1, 5)
+    for idx in np.random.permutation(len(squares))[:n_lamellae]:
+        r, c = squares[idx]
+        center = np.array([(r + 0.5) * pitch + bar_width / 2, (c + 0.5) * pitch + bar_width / 2])
+        _placeStamp(img, stamp, center - np.array(stamp.shape) / 2)
+    return img
+
 
 class MicroscopeDummy:
 
@@ -193,6 +241,8 @@ class MicroscopeDummy:
 
     @property
     def camera_dims(self):
+        if self.imaging_params is not None and getattr(self.imaging_params, "cam_dims", None) is not None:
+            return np.array(self.imaging_params.cam_dims, dtype=int)
         return np.array([5760, 4092], dtype=int)
     
     @property
@@ -280,22 +330,20 @@ class MicroscopeDummy:
         self.dummy_state["condenser_lens"] = value
         log(f"#DUMMY: C2/3 was changed to {self.dummy_state['condenser_lens']}!")
 
-    def setBeamShift(self, shift_xy=None, relative=False):
-        """Sets beam shift."""
+    def setBeamShift(self, beam_shift, relative=False):
+        """Applies beam shift."""
 
-        if shift_xy and not relative:
-            self.dummy_state["beam_shift"] = np.array(shift_xy)
-        elif relative:
-            self.dummy_state["beam_shift"] += np.array(shift_xy)
+        if relative:
+            self.dummy_state["beam_shift"] = self.dummy_state["beam_shift"] + np.array(beam_shift)
         else:
-            log(f"ERROR: No beam shift value given!")
+            self.dummy_state["beam_shift"] = np.array(beam_shift)
 
         log(f"#DUMMY: Beam shift was changed to {self.dummy_state['beam_shift']}!")
 
     def setBeamTilt(self, tilt_xy=None, auto=False):
         """Sets beam tilt."""
 
-        if tilt_xy and not auto:
+        if tilt_xy is not None and not auto:
             self.dummy_state["beam_tilt"] = np.array(tilt_xy)
         elif auto:
             log(f"#DUMMY: Beam tilt was adjusted automatically.")
@@ -348,13 +396,18 @@ class MicroscopeDummy:
             self.dummy_state["stage"] = xyz
         log(f"#DUMMY: Stage was moved to {self.stage}!")
 
-    def tiltStage(self, tilt, backlash=True):
+    def tiltStage(self, tilt, backlash=True, threshold=0.1, force=False):
         """Tilts stage to target angle."""
+
+        # Check if tilt changed
+        if abs(tilt - self.tilt_angle) <= threshold and not force:
+            log(f"DEBUG: Tilt angle change is <={threshold} degrees and tilt action will be skipped.")
+            return
 
         # Check tilt limit
         if abs(tilt) > self.tilt_limit:
             log(f"ERROR: {tilt} goes beyond maximum stage tilt [{self.tilt_limit}]!")
-            return
+            return False
 
         # Tilt to angle
         self.dummy_state["tilt_angle"] = tilt
@@ -389,7 +442,7 @@ class MicroscopeDummy:
 
         if img_array is None:
             # Generate random noise image
-            img_array = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32) 
+            img_array = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
 
         # Find file to save to
         if save:
@@ -446,26 +499,21 @@ class MicroscopeDummy:
         if not isinstance(target_state, list):
             target_state = [target_state]
 
-        # Consider state 1 LM state and all others Low Dose states
-        if target_state[0] != 1 and target_state[0] != 10:
-            self.low_dose = True
-            self.low_dose_area = "R"
-
+        mm_states = self.imaging_params.MM_image_state if isinstance(self.imaging_params.MM_image_state, list) else [self.imaging_params.MM_image_state]
         for state in target_state:
             self.dummy_state["imaging_state"] = state
-            if state == self.imaging_params.WG_image_state:
-                wg_pix = self.imaging_params.WG_pix_size if self.imaging_params.WG_pix_size else 400.0
-                self.dummy_state["magnification"] = 12323 / wg_pix
-            elif state == self.imaging_params.IM_image_state:
-                im_pix = getattr(self.imaging_params, "IM_pix_size", None) or 10.0
-                self.dummy_state["magnification"] = 12323 / im_pix
-            elif state in self.imaging_params.MM_image_state:
-                if self.low_dose_area == "V":
-                    self.dummy_state["magnification"] = 12323 / self.imaging_params.view_pix_size
-                elif self.low_dose_area == "R":
-                    self.dummy_state["magnification"] = 12323 / self.imaging_params.rec_pix_size
-                else:
-                    self.dummy_state["magnification"] = 12323 / 0.1
+            # WG and IM states are not Low Dose, MM states are Low Dose with View as initial area
+            if state in mm_states:
+                self.low_dose = True
+                self.low_dose_area = "V"
+                self.dummy_state["magnification"] = 12323 / self.imaging_params.view_pix_size
+            else:
+                self.low_dose = False
+                self.low_dose_area = None
+                if state == self.imaging_params.WG_image_state:
+                    self.dummy_state["magnification"] = 12323 / (self.imaging_params.WG_pix_size or 400.0)
+                elif state == self.imaging_params.IM_image_state:
+                    self.dummy_state["magnification"] = 12323 / (getattr(self.imaging_params, "IM_pix_size", None) or 10.0)
             log(f"#DUMMY: Changed image state to {state}!")
 
         # Check if imaging state fits expectation
@@ -562,8 +610,8 @@ class MicroscopeDummy:
             return None, None
 
         # Generate two dummy images
-        img1 = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32)
-        img2 = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32)
+        img1 = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
+        img2 = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
 
         if file_path:
             from SPACEtomo.modules.utils import writeMrc
@@ -596,43 +644,10 @@ class MicroscopeDummy:
         # Save pix size
         imaging_params.WG_pix_size = pix_size * binning
 
-        # Setup montage
-        grid_bar_num = 20
-        map_size = 2000 # microns
-        lamella_dims = np.array([15, 25]) # width, height in microns
-
-        # Generate grid map
-        grid_map = np.full((int(map_size / pix_size * 1000), int(map_size / pix_size * 1000)), 0.25, dtype=np.float32)
-        grid_bar_dist = max(grid_map.shape) / grid_bar_num
-        grid_bar_width = max(grid_map.shape) / grid_bar_num / 3
-        for i in range(grid_bar_num):
-            grid_map[:, int(i * grid_bar_dist): int(i * grid_bar_dist + grid_bar_width)] = 0
-            grid_map[int(i * grid_bar_dist): int(i * grid_bar_dist + grid_bar_width), :] = 0
-
-        # Generate lamella img
-        lamella_width = int(lamella_dims[0] / map_size * max(grid_map.shape))
-        lamella_height = int(lamella_dims[1] / map_size * max(grid_map.shape))
-        lamella_img = np.full((lamella_height * 2, lamella_width * 2), 0.25, dtype=np.float32)
-        # Lamella ice
-        lamella_img[int(lamella_img.shape[0] - lamella_height) // 2: int(lamella_img.shape[0] + lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 0.5
-        # Lamella trenches
-        lamella_img[:int(lamella_img.shape[0] - lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-        lamella_img[int(lamella_img.shape[0] + lamella_height) // 2:, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-
-        # Align lamella with tilt axis
-        if abs(imaging_params.view_ta_rotation) < 45:
-            lamella_img = lamella_img.T
-
-        # Add lamellae at random coords
-        random_coords = np.random.rand(np.random.randint(1, 5), 2)
-        for coords in random_coords:
-            x = int(coords[0] * grid_map.shape[0] * 0.8 + 0.1 * grid_map.shape[0])
-            y = int(coords[1] * grid_map.shape[1] * 0.8 + 0.1 * grid_map.shape[1])
-            grid_map[x: x + lamella_img.shape[0], y: y + lamella_img.shape[1]] = lamella_img
-
-        # Add 25% noise
-        noise = np.random.rand(*grid_map.shape)
-        grid_map = grid_map * (0.75 + 0.25 * noise.astype(np.float32))
+        # Generate grid map (1 mm region, lamellae in grid squares)
+        map_size = 1000 # microns
+        grid_map = _gridImage((int(map_size / pix_size * 1000), int(map_size / pix_size * 1000)), pix_size, [15, 25], transpose=abs(imaging_params.view_ta_rotation) < 45)
+        grid_map = _toCounts(_addNoise(grid_map))
 
         # Save map
         grid_map_file = self.cur_dir / (grid_name + ".mrc")
@@ -737,8 +752,7 @@ class MicroscopeDummy:
         lamella_map[int((lamella_map.shape[0] + lamella_height) // 2 - lamella_map.shape[0] / 10): int(lamella_map.shape[0] + lamella_height) // 2, int(lamella_map.shape[1] - lamella_width) // 2: int(lamella_map.shape[1] + lamella_width) // 2] = cats_intensity["coating"]
 
         # Add 50% noise
-        noise = np.random.rand(*lamella_map.shape)
-        lamella_map = lamella_map * (0.5 + 0.5 * noise.astype(np.float32))
+        lamella_map = _toCounts(_addNoise(lamella_map, fraction=0.5))
 
         # Align lamella with tilt axis
         if abs(self.imaging_params.view_ta_rotation) < 45:
@@ -767,102 +781,24 @@ class MicroscopeDummy:
 
     # Dummy image generation
     def dummyImageWG(self):
-        # Get proper pix size
-        pix_size = self.imaging_params.WG_pix_size
+        """Camera image at whole grid mag (grid bars and 1-4 lamellae in grid squares)."""
 
-        # Define lamella dims
-        lamella_dims = np.array([15, 25]) / pix_size * 1000 # width, height in microns
-
-        # Define grid bar distance and width
-        grid_bar_dist = 100 / pix_size * 1000 # microns
-        grid_bar_width = grid_bar_dist / 3
-        grid_bar_num = int(max(self.imaging_params.cam_dims) / grid_bar_dist / pix_size * 1000)
-
-        # Generate map image
-        map_img = np.full(self.imaging_params.cam_dims, 0.25, dtype=np.float32)
-
-        # Add grid bars
-        for i in range(grid_bar_num):
-            map_img[:, int(i * grid_bar_dist): int(i * grid_bar_dist + grid_bar_width)] = 0
-            map_img[int(i * grid_bar_dist): int(i * grid_bar_dist + grid_bar_width), :] = 0
-
-        # Generate lamella image
-        lamella_width = int(lamella_dims[0])
-        lamella_height = int(lamella_dims[1])
-        lamella_img = np.full((lamella_height * 2, lamella_width * 2), 0.25, dtype=np.float32)
-        # Lamella ice
-        lamella_img[int(lamella_img.shape[0] - lamella_height) // 2: int(lamella_img.shape[0] + lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 0.5
-        # Lamella trenches
-        lamella_img[:int(lamella_img.shape[0] - lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-        lamella_img[int(lamella_img.shape[0] + lamella_height) // 2:, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-
-        # Align lamella with tilt axis
-        if abs(self.imaging_params.view_ta_rotation) < 45:
-            lamella_img = lamella_img.T
-
-        # Add lamellae at random coords
-        random_coords = np.random.rand(np.random.randint(1, 5), 2)
-        for coords in random_coords:
-            x = int(coords[0] * map_img.shape[0] * 0.8 + 0.1 * map_img.shape[0])
-            y = int(coords[1] * map_img.shape[1] * 0.8 + 0.1 * map_img.shape[1])
-            map_img[x: x + lamella_img.shape[0], y: y + lamella_img.shape[1]] = lamella_img
-
-        # Add 25% noise
-        noise = np.random.rand(*map_img.shape)
-        map_img = map_img * (0.75 + 0.25 * noise.astype(np.float32))
+        pix_size = self.imaging_params.WG_pix_size or 400.0
+        map_img = _gridImage(np.flip(self.camera_dims), pix_size, [15, 25], transpose=abs(self.imaging_params.view_ta_rotation) < 45, margin_squares=0)
 
         log(f"#DUMMY: Generated LM mag image!")
-        return map_img
+        return _toCounts(_addNoise(map_img))
 
     def dummyImageIM(self):
-        # Get proper pix size
+        """Camera image at intermediate mag with one lamella at a random position."""
+
         pix_size = self.imaging_params.IM_pix_size or 10.0
+        map_img = np.full(np.flip(self.camera_dims), 0.25, dtype=np.float32)
 
-        # Define lamella dims
-        lamella_dims = np.array([15, 25]) / pix_size * 1000 # width, height in pixels
-
-        # Generate map image
-        map_img = np.full(np.flip(self.imaging_params.cam_dims).astype(int), 0.25, dtype=np.float32)
-
-        # Generate lamella image
-        lamella_width = int(lamella_dims[0])
-        lamella_height = int(lamella_dims[1])
-        lamella_img = np.full((lamella_height * 2, lamella_width * 2), 0.25, dtype=np.float32)
-        # Lamella ice
-        lamella_img[int(lamella_img.shape[0] - lamella_height) // 2: int(lamella_img.shape[0] + lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 0.5
-        # Lamella trenches
-        lamella_img[:int(lamella_img.shape[0] - lamella_height) // 2, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-        lamella_img[int(lamella_img.shape[0] + lamella_height) // 2:, int(lamella_img.shape[1] - lamella_width) // 2: int(lamella_img.shape[1] + lamella_width) // 2] = 1
-
-        # Align lamella with tilt axis
-        if abs(self.imaging_params.view_ta_rotation) < 45:
-            lamella_img = lamella_img.T
-
-        # Crop lamella image if it's larger than map
-        if lamella_img.shape[0] > map_img.shape[0]:
-            lamella_img = lamella_img[:map_img.shape[0], :]
-        if lamella_img.shape[1] > map_img.shape[1]:
-            lamella_img = lamella_img[:, :map_img.shape[1]]
-
-        # Add lamellae at random coords
-        random_coords = np.random.rand(1, 2)
-        for coords in random_coords:
-            x = int(coords[0] * max(0, map_img.shape[0] - lamella_img.shape[0]))
-            y = int(coords[1] * max(0, map_img.shape[1] - lamella_img.shape[1]))
-            map_img[x: x + lamella_img.shape[0], y: y + lamella_img.shape[1]] = lamella_img
-
-        # Add 25% noise
-        noise = np.random.rand(*map_img.shape)
-        map_img = map_img * (0.75 + 0.25 * noise.astype(np.float32))
+        stamp = _lamellaStamp(np.array([15, 25]) / pix_size * 1000, transpose=abs(self.imaging_params.view_ta_rotation) < 45)
+        stamp = stamp[:map_img.shape[0], :map_img.shape[1]]
+        top_left = np.random.rand(2) * np.maximum(0, np.array(map_img.shape) - np.array(stamp.shape))
+        _placeStamp(map_img, stamp, top_left)
 
         log(f"#DUMMY: Generated IM mag image!")
-        return map_img
-
-    def dummyImageMM(self):
-        pass
-
-    def dummyImageView(self):
-        pass
-
-    def dummyImageRec(self):
-        pass
+        return _toCounts(_addNoise(map_img))

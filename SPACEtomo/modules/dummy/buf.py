@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/23
 # Revision:     v1.4
-# Last Change:  2025/03/04: updated to make dummy run work again
+# Last Change:  2026/11/07: fixed shape/magnification/polygon/nav_id bugs, added reset for tests
+#               2025/03/04: updated to make dummy run work again
 #               2024/12/23: added alignTo function
 #               2024/08/26: split from modules/buf.py
 #               2024/08/23: added BufferDummy
@@ -42,6 +43,15 @@ class BufferDummy:
     # Keep file name of last image created by MicroscopeDummy
     last_dummy_image = None
 
+    @classmethod
+    def reset(cls):
+        """Clears class-level state (references, instances, last dummy image), e.g. between tests."""
+        cls.instances = []
+        cls.nav = None
+        cls.microscope = None
+        cls.imaging_params = None
+        cls.last_dummy_image = None
+
     def __init__(self, buffer="A", nav_id=None, img=None, file_path=None, section=None) -> None:
         """Buffer can be initialized in three ways:
             1. Using a navigator ID of a map.
@@ -61,7 +71,7 @@ class BufferDummy:
         # Load nav map
         if nav_id is not None and self.nav:
             self.nav_id = nav_id
-            self.buf, *_ = "A", None
+            self.buf = "A"
             self.buf_mod = self.buf
             self.imgFromBuffer()
 
@@ -104,16 +114,16 @@ class BufferDummy:
         else:
             raise ValueError("Need buffer letter (and optional image) or navigator item ID to initialize!")
         
-        # Get image info
-        if img is not None:
-            self.shape = np.array(img.shape)
+        # Get image info (shape as [x, y] like ImageProperties)
+        if self.img is not None:
+            self.shape = np.flip(np.array(self.img.shape[:2]))
         else:
-            self.shape = self.imaging_params.cam_dims
+            self.shape = np.array(self.imaging_params.cam_dims)
         self.binning = 1
         if not self.pix_size:
             self.pix_size = 1
         self.dose = 1
-        self.magnification = int(self.pix_size * 12323)
+        self.magnification = int(12323 / self.pix_size)
         self.mean_counts = np.random.randint(50, 200)
 
         # Get timestamp of image to make sure no other image was loaded in buffer when returning
@@ -171,7 +181,7 @@ class BufferDummy:
                             # Generate View image
                             log(f"#DUMMY: Generating View image...")
                             self.pix_size = self.imaging_params.view_pix_size
-                        elif self.low_dose_area == "R":
+                        elif self.microscope.low_dose_area == "R":
                             # Generate Record image
                             log(f"#DUMMY: Generating Record image...")
                             self.pix_size = self.imaging_params.rec_pix_size
@@ -182,11 +192,11 @@ class BufferDummy:
 
                     if self.img is None:
                         # Generate random noise image
-                        self.img = np.random.rand(*self.imaging_params.cam_dims).astype(np.float32) 
+                        self.img = np.random.rand(*np.flip(self.imaging_params.cam_dims)).astype(np.float32)
                         log(f"#DUMMY: Generated random buffer image!")
         else:
             if self.img_mod is None or reload:
-                self.img_mod = np.random.rand(*self.imaging_params.cam_dims)
+                self.img_mod = np.random.rand(*np.flip(self.imaging_params.cam_dims))
                 log(f"#DUMMY: Generated random modified buffer image!")
 
     def imgToBuffer(self, mod=False, buffer=None):
@@ -261,51 +271,17 @@ class BufferDummy:
 
             # Check intensity range and rescale if needed
             log(f"DEBUG: Image min/max: {np.min(img)}/{np.max(img)}")
-            if np.min(img) < 0 or not 200 < np.max(img) < 255:
+            if np.min(img) < 0 or not 200 < np.max(img) <= 255:
                 log(f"DEBUG: Rescaling image intensity to out_range=(0, 255)")
                 img = exposure.rescale_intensity(img, out_range=(0, 255)).astype(np.uint8)
 
             Image.fromarray(img).save(file_path)
-
-            if save_meta_data:
-                log(f"DEBUG: Saving meta data to {file_path.parent / (file_path.stem + '.json')}")
-                self.saveMetaData(file_path=file_path.parent / (file_path.stem + ".json"), target_pix_size=target_pix_size)
 
         # Start the background thread to run `save_operation`
         executor = concurrent.futures.ThreadPoolExecutor()
         future = executor.submit(save_operation, img)
 
 
-        """
-        if file_path.exists():
-            if not overwrite:
-                log(f"WARNING: {file_path.name} already exists! Skipping saving.")
-                return
-            else:
-                log(f"WARNING: {file_path.name} already exists! It will be overwritten.")
-
-        self.imgFromBuffer()
-
-        if target_pix_size:
-            # Rescale image
-            rescale_factor = target_pix_size / self.pix_size
-            # Use rescale in case of upscaling
-            self.rescaleImage(rescale_factor)
-            # Use modified image
-            img = self.img_mod
-        else:
-            # Use unmodified image
-            img = self.img
-
-        # Check intensity range and rescale if not between 0 and 255
-        log(f"DEBUG: Image min/max: {np.min(img)}/{np.max(img)}")
-        if np.min(img) < 0 or not 200 < np.max(img) < 255:
-            log(f"DEBUG: Rescaling image intensity to out_range=(0, 255)") 
-            img = exposure.rescale_intensity(img, out_range=(0, 255)).astype(np.uint8)
-
-        Image.fromarray(img).save(file_path)
-
-        """
 
         if save_meta_data:
             log(f"DEBUG: Saving meta data to {file_path.parent / (file_path.stem + '.json')}")
@@ -327,7 +303,7 @@ class BufferDummy:
             scaling_factor = 1
 
         # Get additional data from nav
-        if self.nav and self.nav_id:
+        if self.nav and self.nav_id is not None:
             meta_data["stage_coords"] = np.array(self.nav.items[self.nav_id].entries["StageXYZ"])
             if "MapScaleMat" in self.nav.items[self.nav_id].entries.keys():
                 matrix = np.array([float(val) for val in self.nav.items[self.nav_id].entries["MapScaleMat"]]).reshape((2, 2))
@@ -398,7 +374,7 @@ class BufferDummy:
             #    continue
 
             # Get z coordinate
-            if self.nav_id:
+            if self.nav_id is not None:
                 stage_z = self.nav.items[self.nav_id].stage[2]
             else:
                 stage_z = 0.0
@@ -417,7 +393,7 @@ class BufferDummy:
 
             # Create polygon points
             pts_x = [box.x_min, box.x_min, box.x_max, box.x_max, box.x_min]
-            pts_y = [box.y_min, box.y_max, box.y_max, box.y_min, box.x_min]
+            pts_y = [box.y_min, box.y_max, box.y_max, box.y_min, box.y_min]
 
             # Add polygon
             #nav_id = self.nav.newPoint([*stage_coords, 0], box.label, "Dummy polygon")
@@ -464,8 +440,8 @@ class BufferDummy:
     def px2stage(self, point):
         """Converts image coords to stage coords using buffer specific image and montage shifts."""
 
-        if self.nav_id:
-            stage = self.nav.items[self.nav_id].stage[:2]
+        if self.nav_id is not None:
+            stage = self.nav.items[self.nav_id].stage[:2].copy()
             stage += point * self.pix_size / 1000
         else:
             stage = np.random.rand(2) * 1800 - 900

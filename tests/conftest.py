@@ -1,6 +1,7 @@
 """Shared fixtures for SPACEtomo tests."""
 
 import json
+import os
 import shutil
 import configparser
 from pathlib import Path
@@ -35,9 +36,16 @@ def pytest_generate_tests(metafunc):
 def sem_version(request):
     """Emulated SerialEM version for the test (each test starts with a fresh mock state)."""
     import serialem
+    from SPACEtomo.modules.buf import Buffer
+    from SPACEtomo.modules.dummy.buf import BufferDummy
     previous = serialem.get_version()
     serialem.set_version(request.param)
     serialem.reset_mock_state()
+
+    # Reproducible dummy images (SPACETOMO_TEST_SEED to vary) and no buffer state from previous tests
+    np.random.seed(int(os.environ.get("SPACETOMO_TEST_SEED", 0)))
+    BufferDummy.reset()
+    Buffer.instances, Buffer.nav = [], None
     yield request.param
     serialem.set_version(previous)
 
