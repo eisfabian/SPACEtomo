@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
 # Revision:     v1.3
-# Last Change:  2026/07/10: scale virtual _view.mrc maps to View pixel size for non-View montages
+# Last Change:  2026/07/17: stamp virtual maps with View mag/ConSet/scale so SerialEM treats them as View
+#               2026/07/10: scale virtual _view.mrc maps to View pixel size for non-View montages
 #               2025/04/08: added tracking centering upon splitting areas
 #               2025/01/30: added rectangular search threshold, small fixes
 #               2024/09/02: fixed area name not considered when preparing targets
@@ -691,14 +692,40 @@ class PACEArea(TargetArea):
         view_pix_size = self.imaging_params.view_pix_size
         map_pix_size = self.map_buffer.pix_size
         target_dims = np.flip(self.imaging_params.cam_dims)                          # output dims (one View frame, px)
-        crop_fov = np.round(target_dims * view_pix_size / map_pix_size).astype(int)  # montage px spanning that frame
+
+        # If the montage was not collected in View mode, the crop must be rescaled to View sampling and the
+        # nav entry re-stamped as a View map. DefocusOffset is intentionally NOT overridden: it stays as the
+        # montage was collected so SerialEM applies the correct offset when realigning to the virtual map.
+        resampled = not np.isclose(map_pix_size, view_pix_size, rtol=0.02)
+        if resampled:
+            crop_fov = np.round(target_dims * view_pix_size / map_pix_size).astype(int)   # montage px spanning one View frame
+
+            # Stamping a non-View montage needs the View mag index, which requires SerialEM 4.3+ (GetLowDoseAreaParams).
+            if self.imaging_params.view_mag_index is None:
+                log("ERROR: Cannot convert a non-View montage to View virtual maps because the View mag index is "
+                    "unavailable (requires SerialEM 4.3+ for GetLowDoseAreaParams). "
+                    "Please use a View montage map or upgrade to SerialEM 4.3+.")
+                return
+
+            template = nav.items[template_id]
+            view_scale_mat = (np.array(template.entries["MapScaleMat"], dtype=float).reshape((2, 2))
+                              * float(template.entries["MapBinning"][0]) / float(template.entries["MontBinning"][0])
+                              * map_pix_size / view_pix_size)
+            map_overrides = {
+                "MapMagInd": [str(self.imaging_params.view_mag_index)],
+                "MapLDConSet": ["0"],   # 0 = View low dose area
+                "MapScaleMat": [str(val) for val in np.ravel(view_scale_mat)],
+            }
+        else:
+            crop_fov = target_dims
+            map_overrides = None        # View montage: template is already a View map, no stamping needed
 
         for p, point in enumerate(self.points):
             # Make virtual map from montage in buffer
             virt_map_file = map_file.parent / (area_name + "_tgt_" + str(p + 1).zfill(3) + "_view.mrc")
             virt_map = np.flip(self.map_buffer.getCropImage(point, crop_fov), axis=0)       # crop image and flip y-axis
             # Rescale to View pixel size if the montage was not collected in View mode (e.g. Search)
-            if not np.array_equal(crop_fov, target_dims):
+            if resampled:
                 virt_map = transform.resize(
                     virt_map, target_dims,
                     preserve_range=True,
@@ -708,7 +735,7 @@ class PACEArea(TargetArea):
             utils.writeMrc(virt_map_file, virt_map, view_pix_size)
 
             # Add map to navigator
-            nav_id = nav.newMapFromImg(img_file=virt_map_file, template_id=template_id, coords=self.points_stage[p], label=str(p + 1).zfill(3), note=virt_map_file.name)
+            nav_id = nav.newMapFromImg(img_file=virt_map_file, template_id=template_id, coords=self.points_stage[p], label=str(p + 1).zfill(3), note=virt_map_file.name, entry_overrides=map_overrides)
 
             # Tracking target id for nav adjustments
             if p == 0:
