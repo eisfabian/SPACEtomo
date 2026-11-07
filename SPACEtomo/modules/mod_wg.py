@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/02/04: added support for saving and loading custom box names
+# Last Change:  2026/11/07: fixed BBox.scale shifting the box and padding less than the factor
+#               2026/02/04: added support for saving and loading custom box names
 #               2025/01/10: Refactored findLamellae to account for both local and external runs
 #               2024/08/21: minor fixes after external test run
 #               2024/08/16: added sorting function, added meta data
@@ -311,9 +312,9 @@ class BBox:
         return np.array([self.x_min, self.y_min, self.x_max, self.y_max, self.cat, self.prob])
     
     def scale(self, factor):
-        size = self.size * factor
-        self.x_min, self.y_min = self.center - size / 2
-        self.x_max, self.y_max = self.center + size / 2
+        center, size = self.center, self.size * factor     # center before changing the corners
+        self.x_min, self.y_min = center - size / 2
+        self.x_max, self.y_max = center + size / 2
        
     def __mul__(self, mult):
         bbox = self.xyxycc[:4] * mult
