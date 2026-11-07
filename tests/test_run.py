@@ -17,7 +17,7 @@ import pytest
 from tests.conftest import make_settings
 
 
-def _run_spacetomo(session_dir: Path, automation_level: int, manual_selection: bool = False):
+def _run_spacetomo(session_dir: Path, automation_level: int, capsys, manual_selection: bool = False):
     """Helper: configure and run SPACEtomo at a given automation level."""
     import serialem as sem
 
@@ -36,12 +36,14 @@ def _run_spacetomo(session_dir: Path, automation_level: int, manual_selection: b
     # A finished run ends the script with sem.Exit(), which raises SEMexited like in SerialEM
     with pytest.raises(sem.SEMexited, match="Normal exit"):
         run_module.main()
+    # Error exits raise the same exception, so make sure the run actually completed
+    assert "SPACEtomo run completed" in capsys.readouterr().out
 
 
 @pytest.mark.slow
-def test_run_level1(session_dir):
+def test_run_level1(session_dir, capsys):
     """Level 1: WG montage + lamella detection."""
-    _run_spacetomo(session_dir, automation_level=1)
+    _run_spacetomo(session_dir, automation_level=1, capsys=capsys)
 
     grid_dir = session_dir / "G01"
     assert (grid_dir / "G01.mrc").exists(), "WG montage not created"
@@ -53,9 +55,9 @@ def test_run_level1(session_dir):
 
 
 @pytest.mark.slow
-def test_run_level2(session_dir):
+def test_run_level2(session_dir, capsys):
     """Level 2: WG + IM alignment + MM montage collection."""
-    _run_spacetomo(session_dir, automation_level=2)
+    _run_spacetomo(session_dir, automation_level=2, capsys=capsys)
 
     grid_dir = session_dir / "G01"
     map_dir = grid_dir / "SPACE_maps"
@@ -74,9 +76,9 @@ def test_run_level2(session_dir):
 
 
 @pytest.mark.slow
-def test_run_level3(session_dir):
+def test_run_level3(session_dir, capsys):
     """Level 3: WG + IM + MM + segmentation triggering."""
-    _run_spacetomo(session_dir, automation_level=3, manual_selection=True)
+    _run_spacetomo(session_dir, automation_level=3, capsys=capsys, manual_selection=True)
 
     grid_dir = session_dir / "G01"
     map_dir = grid_dir / "SPACE_maps"
@@ -87,9 +89,9 @@ def test_run_level3(session_dir):
 
 
 @pytest.mark.slow
-def test_run_level4(session_dir):
+def test_run_level4(session_dir, capsys):
     """Level 4: Full pipeline through target setup."""
-    _run_spacetomo(session_dir, automation_level=4)
+    _run_spacetomo(session_dir, automation_level=4, capsys=capsys)
 
     grid_dir = session_dir / "G01"
     map_dir = grid_dir / "SPACE_maps"

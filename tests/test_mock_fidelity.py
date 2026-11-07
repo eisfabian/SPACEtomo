@@ -93,7 +93,8 @@ def test_return_all_values_as_tuples():
         sem.ReturnAllValuesAsTuples(0)
 
 
-@pytest.mark.parametrize("version, date, expected", [("40200", "20250228", 1), ("40300", "", None), ("50000", "", 0)])
+@pytest.mark.parametrize("version, date, expected", [("40200", "20250228", 1), ("40300", "", None), ("50000", "", 0),
+                                                    ("40200", "20990101", 0)])     # version and date must both be reached
 def test_is_version_at_least(sem_version, version, date, expected):
     if expected is None:
         expected = int(sem_version != "4.2")

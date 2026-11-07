@@ -115,7 +115,7 @@ class _State:
         self.imaging_states = {
             "WG": (1, -1, 0, 10),    # Whole grid: not low dose
             "IM": (2, -1, 0, 20),    # Intermediate mag: not low dose
-            "MM1": (3, 0, 0, 25),    # Medium mag: low dose (Record area)
+            "MM1": (3, 0, 0, 25),    # Medium mag: low dose (type 0 = View area)
         }
         self.current_imaging_state = 1
 
@@ -1138,10 +1138,10 @@ def UserSetDirectory(prompt=""):
 # ---------------------------------------------------------------------------
 
 def IsVersionAtLeast(version, date_string=""):
+    """True if both the version and the build date are at least the given ones (as CMacCmd::IsVersionAtLeast)."""
     emulated = _COMMANDS[_version] if _COMMANDS else {"version_code": "40200", "build_date": "20250228"}
-    if int(version) != int(emulated["version_code"]):
-        return int(int(emulated["version_code"]) > int(version))
-    return int(not date_string or not emulated["build_date"] or emulated["build_date"] >= date_string)
+    date_ok = not date_string or not emulated["build_date"] or int(date_string) <= int(emulated["build_date"])
+    return int(int(version) <= int(emulated["version_code"]) and date_ok)
 
 def ReturnAllValuesAsTuples(flag=1):
     global _always_tuple
@@ -1154,7 +1154,9 @@ def ReturnAllValuesAsTuples(flag=1):
 
 def reset_mock_state():
     """Reset all mock state. Useful between test runs."""
+    global _always_tuple
     _state.reset()
+    _always_tuple = False
 
 
 # ---------------------------------------------------------------------------
@@ -1162,8 +1164,8 @@ def reset_mock_state():
 # ---------------------------------------------------------------------------
 # The real module is generated from SerialEM's MacroMasterList.h, so it differs between versions. Each command
 # parses its arguments with PyArg_ParseTuple (keys I/D/S = int/number/string, lowercase = optional; wrong types
-# or counts raise TypeError), SerialEM then checks the minimum argument count (SEMerror), and reported values come
-# back as floats or strings: None for nothing, a single value, or a tuple. set_version() wraps every mocked command
+# or counts raise TypeError; SerialEM's own minimum argument count is not checked for Python calls), and reported
+# values come back as floats or strings: None for nothing, a single value, or a tuple. set_version() wraps every mocked command
 # accordingly and removes the commands the emulated version does not have (AttributeError, like the real module).
 # The command table is exported from the SerialEM sources by .claude/skills/serialem/scripts/export_mock_table.py.
 
@@ -1229,8 +1231,6 @@ def _emulate(name, func, min_args, keys):
         if kwargs:
             raise TypeError(f"{name}() takes no keyword arguments")
         _check_args(name, keys, args)
-        if len(args) < min_args:
-            raise SEMerror(f"{name} needs at least {min_args} arguments")
         return _report(name, func(*args))
     command.__wrapped_command__ = func
     return command
