@@ -101,6 +101,17 @@ def test_getLowDoseParams_ends_try_on_failure(monkeypatch):
     assert sem.try_level == 0
 
 
+def test_getLowDoseParams_returns_none_before_serialem_43(monkeypatch):
+    """SerialEM < 4.3 has no GetLowDoseAreaParams in its Python module, so the call raises AttributeError."""
+    import SPACEtomo.modules.utils_sem as usem
+
+    sem = StubSEM()     # no GetLowDoseAreaParams attribute, like SerialEM 4.2
+    monkeypatch.setattr(usem, "sem", sem, raising=False)
+
+    assert usem.getLowDoseParams("V") is None
+    assert sem.try_level == 0
+
+
 def test_getLowDoseParams_ends_try_on_success(monkeypatch):
     import SPACEtomo.modules.utils_sem as usem
 

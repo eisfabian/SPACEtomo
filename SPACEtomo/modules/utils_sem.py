@@ -123,7 +123,7 @@ def getLowDoseParams(area: str):
         sem.StartTry(1)
         sem.GetLowDoseAreaParams(area, "ld_params")
         ld_params = sem.GetVariable("ld_params")
-    except sem.SEMerror:
+    except (sem.SEMerror, AttributeError):  # AttributeError: command missing from Python module before SerialEM 4.3
         log(f"WARNING: Could not retrieve Low Dose parameters for area '{area}'. GetLowDoseAreaParams requires SerialEM 4.3+.")
         return None
     finally:
