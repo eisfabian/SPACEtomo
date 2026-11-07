@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/23
 # Revision:     v1.4
-# Last Change:  2026/11/07: fixed shape/magnification/polygon/nav_id bugs, added reset for tests
+# Last Change:  2026/11/07: stage geometry for px2stage/stage2px/addNavBoxes, cross-correlation alignTo, fixed file loading
+#               2026/11/07: fixed shape/magnification/polygon/nav_id bugs, added reset for tests
 #               2025/03/04: updated to make dummy run work again
 #               2024/12/23: added alignTo function
 #               2024/08/26: split from modules/buf.py
@@ -21,11 +22,14 @@ from pathlib import Path
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None           # removes limit for large images
 from skimage import transform, exposure
+from skimage.feature import match_template
 import mrcfile
 
 from SPACEtomo import config
 from SPACEtomo.modules import utils
 from SPACEtomo.modules.utils import log
+from SPACEtomo.modules.buf import Buffer
+from SPACEtomo.modules.dummy.specimen import stageToPixelMatrix
 
 class BufferDummy:
 
@@ -40,8 +44,9 @@ class BufferDummy:
     microscope = None
     imaging_params = None
 
-    # Keep file name of last image created by MicroscopeDummy
+    # Keep file name (or array) of last image created by MicroscopeDummy and where it was taken
     last_dummy_image = None
+    last_dummy_info = None
 
     @classmethod
     def reset(cls):
@@ -51,6 +56,7 @@ class BufferDummy:
         cls.microscope = None
         cls.imaging_params = None
         cls.last_dummy_image = None
+        cls.last_dummy_info = None
 
     def __init__(self, buffer="A", nav_id=None, img=None, file_path=None, section=None) -> None:
         """Buffer can be initialized in three ways:
@@ -68,12 +74,30 @@ class BufferDummy:
         self.pix_size = None
         self.mdoc = {}
 
+        # Geometry: nominal stage position of the image center and stage (µm) to pixel matrix (None if unknown)
+        self.stage_center = None
+        self.s2px = None
+
         # Load nav map
         if nav_id is not None and self.nav:
             self.nav_id = nav_id
             self.buf = "A"
             self.buf_mod = self.buf
             self.imgFromBuffer()
+
+            # Geometry from nav item (maps created without template have an identity MapScaleMat)
+            item = self.nav.items[self.nav_id]
+            self.stage_center = np.array(item.stage[:2], dtype=float)
+            self.s2px = np.array(item.entries.get("MapScaleMat", ["1", "0", "0", "1"]), dtype=float).reshape((2, 2))
+            if np.allclose(self.s2px, np.identity(2)):
+                self.s2px = stageToPixelMatrix(self.pix_size)
+
+        # Load from file
+        elif buffer and file_path:
+            self.nav_id = None
+            self.buf = buffer
+            self.buf_mod = self.buf
+            self.loadFile(file_path, section)
 
         # Use loaded buffer
         elif buffer and img is None:
@@ -90,8 +114,9 @@ class BufferDummy:
                     log(f"#DUMMY: Loaded image from {self.last_dummy_image}")
                 elif isinstance(self.last_dummy_image, np.ndarray):
                     self.img = self.last_dummy_image
-                    self.pix_size = self.microscope.camera_pix_size
+                    self.pix_size = self.last_dummy_info["pix_size"] if self.last_dummy_info else self.microscope.camera_pix_size
                     log(f"#DUMMY: Loaded image from last dummy image.")
+                self._geometryFromLastImage()
 
             log(f"#DUMMY: Showing buffer {self.buf}!")
         
@@ -101,15 +126,11 @@ class BufferDummy:
             self.buf = buffer
             self.buf_mod = self.buf
             self.img = img
+            if self.last_dummy_info:
+                self.pix_size = self.last_dummy_info["pix_size"]
+                self._geometryFromLastImage()
             self.imgToBuffer()
             log(f"#DUMMY: Showing image in buffer {self.buf}!")
-
-        # Load from file
-        elif buffer and file_path:
-            self.nav_id = None
-            self.buf = buffer
-            self.buf_mod = self.buf
-            self.loadFile(file_path, section)
 
         else:
             raise ValueError("Need buffer letter (and optional image) or navigator item ID to initialize!")
@@ -131,6 +152,12 @@ class BufferDummy:
 
         # Add weak reference to instance list
         self.__class__.instances.append(weakref.ref(self))
+
+    def _geometryFromLastImage(self):
+        """Uses where MicroscopeDummy took the last image as geometry of this buffer."""
+        if self.last_dummy_info:
+            self.stage_center = np.array(self.last_dummy_info["stage"], dtype=float)
+            self.s2px = stageToPixelMatrix(self.pix_size)
 
     def show(self, reload=False):
         """Show buffer and assert that buffer is unchanged."""
@@ -345,8 +372,8 @@ class BufferDummy:
         # Show buffer
         self.show()
 
-        # Add point
-        nav_id = self.nav.newPoint(str(len(self.nav)), np.random.rand(2) * 1800 - 900, "Dummy point")
+        # Add point (point given as (row, col) like the real Buffer passes to AddImagePosAsNavPoint)
+        nav_id = self.nav.newPoint([*self.px2stage(np.flip(point)), 0], str(len(self.nav)), "Dummy point")
 
         return nav_id
 
@@ -358,100 +385,63 @@ class BufferDummy:
 
         # Find scale factor
         if boxes.pix_size:
-            factor = self.pix_size / boxes.pix_size
+            factor = boxes.pix_size / self.pix_size
         else:
             factor = 1
+
+        # Get z coordinate
+        if self.nav_id is not None:
+            stage_z = self.nav.items[self.nav_id].stage[2]
+        else:
+            stage_z = 0.0
 
         # Add boxes as polygon
         for b, box in enumerate(boxes.boxes):
             # Scale box coords
             box = box * factor
 
-            # Check for stage limits (currently hardcoded as +/-990, TODO, once SerialEM property becomes readable by script command)
-            #stage_coords = self.px2stage(box.center) 
-            #if not (-990 < stage_coords[0] < 990 and -990 < stage_coords[1] < 990):
-            #    log(f"DEBUG: Box [{b}] is outside stage limits. Skipping...")
-            #    continue
-
-            # Get z coordinate
-            if self.nav_id is not None:
-                stage_z = self.nav.items[self.nav_id].stage[2]
-            else:
-                stage_z = 0.0
-
-            # Choose label
-            label = ""
+            # Choose nav label (custom label is kept as display label)
             if labels and b < len(labels):
                 label = labels[b]
             elif label_prefix is not None:
                 label = label_prefix + str(b + 1).zfill(2)
-            elif box.label:
+            else:
                 label = box.label
+            display_label = box.label if box.label else label
 
-            # Pad box
+            # Pad box and convert corners (x, y) to stage coords
             box.scale(padding_factor)
+            corners = [(box.x_min, box.y_min), (box.x_min, box.y_max), (box.x_max, box.y_max), (box.x_max, box.y_min), (box.x_min, box.y_min)]
+            pts = np.array([self.px2stage(np.array(corner)) for corner in corners])
 
-            # Create polygon points
-            pts_x = [box.x_min, box.x_min, box.x_max, box.x_max, box.x_min]
-            pts_y = [box.y_min, box.y_max, box.y_max, box.y_min, box.y_min]
-
-            # Add polygon
-            #nav_id = self.nav.newPoint([*stage_coords, 0], box.label, "Dummy polygon")
-            nav_id = self.nav.newPolygon(pts_x, pts_y, stage_z, label=label, note=f"{label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)", color=config.WG_model_nav_colors[box.cat], update=False)
+            note = f"{display_label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)" if display_label else f"{config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
+            nav_id = self.nav.newPolygon(pts[:, 0], pts[:, 1], stage_z, label=label, note=note, color=config.WG_model_nav_colors[box.cat], update=False)
 
             # Add confidence as UserValue1 and custom label as UserValue2 for nav item
             self.nav.items[nav_id].addEntry("UserValue1", box.prob)
             self.nav.items[nav_id].addEntry("UserValue2", box.label)
-            
+
             log(f"DEBUG: Added new polygon [{label}]")
-
-            # Try to get stage rough stage coords
-            if boxes.pix_size:
-                factor = boxes.pix_size / 1000
-            else:
-                factor = 1
-
-            self.nav.items[nav_id].entries["Type"] = ["1"]
-            self.nav.items[nav_id].entries["PtsX"] = [str(x * factor) for x in pts_x]
-            self.nav.items[nav_id].entries["PtsY"] = [str(y * factor) for y in pts_y]
-            self.nav.items[nav_id].entries["NumPts"] = [str(len(pts_x))]
-
-            # Adjust nav item
-            self.nav.items[nav_id].entries["Color"] = [str(config.WG_model_nav_colors[box.cat])]
-
-            # Override nav label if specified (for searchability)
-            nav_label = ""
-            if labels and b < len(labels):
-                nav_label = labels[b]
-            elif label_prefix is not None:
-                nav_label = label_prefix + str(b + 1).zfill(2)
-            elif box.label:
-                nav_label = box.label
-
-            if nav_label:
-                display_label = box.label if box.label else nav_label
-                self.nav.items[nav_id].label = nav_label
-                self.nav.items[nav_id].note = f"{display_label}: {config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
-            else:
-                self.nav.items[nav_id].note = f"{config.WG_model_categories[box.cat]} ({round(box.prob * 100)} %)"
 
         self.nav.push()
 
     def px2stage(self, point):
-        """Converts image coords to stage coords using buffer specific image and montage shifts."""
+        """Converts image coords (x, y) to nominal stage coords."""
 
-        if self.nav_id is not None:
-            stage = self.nav.items[self.nav_id].stage[:2].copy()
-            stage += point * self.pix_size / 1000
-        else:
-            stage = np.random.rand(2) * 1800 - 900
+        if self.stage_center is None:
+            log(f"ERROR: Buffer {self.buf} has no stage geometry. Returning current stage position.")
+            return np.array(self.microscope.stage[:2], dtype=float)
 
-        return stage
+        return self.stage_center + np.linalg.solve(self.s2px, np.array(point, dtype=float) - self.shape / 2)
        
     def stage2px(self, point):
-        """Converts stage coords to image coords using buffer specific image and montage shifts."""
+        """Converts nominal stage coords to image coords (x, y)."""
 
-        return np.random.rand(2) * self.img.shape
+        if self.stage_center is None:
+            log(f"ERROR: Buffer {self.buf} has no stage geometry. Returning image center.")
+            return self.shape / 2
+
+        return self.s2px @ (np.array(point[:2], dtype=float) - self.stage_center) + self.shape / 2
     
     def rollBuffers(self, skip=[]):
         """Rolls buffers of all instances of Buffer."""
@@ -477,44 +467,48 @@ class BufferDummy:
                 if buf.buf_mod not in self.rolling_buffers:
                     buf.buf_mod = None
 
-    def getCropImage(self, coords, fov):
-        """Crops out virtual map at given coordinates and field of view."""
-
-        if self.img is None:
-            self.imgFromBuffer()
-
-        log(f"DEBUG:\nMap dimensions: {self.img.shape}\nCrop coords:\nx: {int(coords[0] - fov[0] / 2)}, {int(coords[0] + fov[0] / 2)}\ny: {int(coords[1] - fov[1] / 2)}, {int(coords[1] + fov[1] / 2)}")
-
-        imageCrop = self.img[max(0, int(coords[0] - fov[0] / 2)):min(self.img.shape[0], int(coords[0] + fov[0] / 2)), max(0, int(coords[1] - fov[1] / 2)):min(self.img.shape[1], int(coords[1] + fov[1] / 2))]
-        if not np.array_equal(imageCrop.shape, fov):
-            mean = np.mean(imageCrop)
-            if imageCrop.shape[0] < fov[0]:
-                padding = np.full((int(fov[0] - imageCrop.shape[0]), imageCrop.shape[1]), mean)
-                if int(coords[0] - fov[0] / 2) < 0:
-                    imageCrop = np.concatenate((padding, imageCrop), axis=0)
-                if int(coords[0] + fov[0] / 2) > self.img.shape[0]:
-                    imageCrop = np.concatenate((imageCrop, padding), axis=0)
-            if imageCrop.shape[1] < fov[1]:
-                padding = np.full((imageCrop.shape[0], int(fov[1] - imageCrop.shape[1])), mean)
-                if int(coords[1] - fov[1] / 2) < 0:
-                    imageCrop = np.concatenate((padding, imageCrop), axis=1)
-                if int(coords[1] + fov[1] / 2) > self.img.shape[1]:
-                    imageCrop = np.concatenate((imageCrop, padding), axis=1)		
-            log("WARNING: Target position is close to the edge of the map and was padded.")
-        return imageCrop
+    getCropImage = Buffer.getCropImage     # same cropping as the real Buffer
     
-    def alignTo(self, buffer, avoid_image_shift=False):
-        """Aligns current buffer to given buffer."""
+    def alignTo(self, buffer, avoid_image_shift=False, max_shift_um=30):
+        """Aligns current buffer to given buffer by cross-correlation at the coarser pixel size (like AlignTo/AlignBetweenMags).
+
+        Returns the shift in pixels of this buffer and the specimen shift (µm) of this image's content relative to the reference,
+        i.e. the stage has to be moved by minus this shift to center the reference content.
+        """
 
         if isinstance(buffer, BufferDummy):
-            buffer_img = buffer.img
+            ref_img, ref_pix_size = buffer.img, buffer.pix_size
+        else:
+            log(f"WARNING: Can only align dummy buffers. Returning no shift.")
+            return np.zeros(2), np.zeros(2)
+        if self.img is None or ref_img is None:
+            log(f"ERROR: Missing image for alignment. Returning no shift.")
+            return np.zeros(2), np.zeros(2)
 
-        # TODO implement CC based alignment
-        log("#DUMMY: Aligned image.")
+        # Bring both images to the coarser pixel size
+        pix_size = max(self.pix_size, ref_pix_size)
+        img = transform.rescale(self.img.astype(np.float32), self.pix_size / pix_size, anti_aliasing=True) if self.pix_size < pix_size else self.img.astype(np.float32)
+        ref = transform.rescale(ref_img.astype(np.float32), ref_pix_size / pix_size, anti_aliasing=True) if ref_pix_size < pix_size else ref_img.astype(np.float32)
 
-        pixel_shift = np.zeros(2)
-        ss_shift = np.zeros(2) / 1000
-        
+        # Search smaller image in the central region of the larger one
+        sign = 1
+        if img.shape[0] > ref.shape[0] or img.shape[1] > ref.shape[1]:
+            img, ref, sign = ref, img, -1
+        search = int(max_shift_um * 1000 / pix_size)
+        r0 = max(0, (ref.shape[0] - img.shape[0]) // 2 - search)
+        c0 = max(0, (ref.shape[1] - img.shape[1]) // 2 - search)
+        region = ref[r0: min(ref.shape[0], r0 + img.shape[0] + 2 * search), c0: min(ref.shape[1], c0 + img.shape[1] + 2 * search)]
+
+        cc = match_template(region, img)
+        peak_row, peak_col = np.unravel_index(np.argmax(cc), cc.shape)
+        d_row = r0 + peak_row + img.shape[0] / 2 - ref.shape[0] / 2
+        d_col = c0 + peak_col + img.shape[1] / 2 - ref.shape[1] / 2
+
+        # Image rows run along -y
+        ss_shift = sign * np.array([d_col, -d_row]) * pix_size / 1000
+        pixel_shift = ss_shift * 1000 / self.pix_size
+        log(f"#DUMMY: Aligned image (CC peak {cc.max():.2f}): shift {ss_shift} µm")
+
         return pixel_shift, ss_shift
     
     def clearAlignment(self):

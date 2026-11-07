@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/09/02
 # Revision:     v1.3
-# Last Change:  2026/11/07: fixed imaging state/beam/tilt bugs, int16 images, shared lamella generation
+# Last Change:  2026/11/07: images rendered from synthetic grid (specimen.py) with per-mag offsets and ground truth file
+#               2026/11/07: fixed imaging state/beam/tilt bugs, int16 images, shared lamella generation
 #               2026/07/17: added mag_index property to mirror real Microscope
 #               2025/03/04: updated to make dummy run work again
 #               2024/09/02: separated from modules/scope.py
@@ -15,103 +16,14 @@
 import mrcfile
 import numpy as np
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image
 
 import SPACEtomo.config as config
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules.dummy.buf import BufferDummy
 from SPACEtomo.modules.utils import log, writeMrc
 
-### DEV SETTINGS ###
-# 
-# Dummy image generation
-cats = {
-    "background": 0,
-    "white": 1,
-    "black": 2,
-    "crack": 3,
-    "coating": 4,
-    "cell": 5,
-    "cellwall": 6,
-    "nucleus": 7,
-    "vacuole": 8,
-    "mitos": 9,
-    "lipiddroplets": 10,
-    "vesicles": 11,
-    "multivesicles": 12,
-    "membranes": 13,
-    "dynabeads": 14,
-    "ice": 15,
-    "cryst": 16
-}
-cats_intensity = {
-    "background": 0.5,
-    "white": 0.9,
-    "black": 0.1,
-    "crack": 0.9,
-    "coating": 0.25,
-    "cell": 0.4,
-    "cellwall": 0.35,
-    "nucleus": 0.37,
-    "vacuole": 0.32,
-    "mitos": 0.3,
-    "lipiddroplets": 0.25,
-    "vesicles": 0.33,
-    "multivesicles": 0.33,
-    "membranes": 0.3,
-    "dynabeads": 0.2,
-    "ice": 0.11,
-    "cryst": 0.2
-}
-#
-### END SETTINGS ###
-
-
-def _toCounts(img, mean_counts=2000):
-    """Converts a relative intensity image (0-1) into int16 camera counts, as stored in real maps."""
-    return np.clip(img * 2 * mean_counts, 0, np.iinfo(np.int16).max).astype(np.int16)
-
-def _addNoise(img, fraction=0.25):
-    """Multiplies image with uniform noise (fraction of intensity)."""
-    return img * (1 - fraction + fraction * np.random.rand(*img.shape).astype(np.float32))
-
-def _lamellaStamp(lamella_dims_px, transpose=False):
-    """Lamella as seen at low mag: ice slab (0.5) between two milled trenches (1.0) in a 2x larger patch (0.25)."""
-    width, height = int(lamella_dims_px[0]), int(lamella_dims_px[1])
-    stamp = np.full((height * 2, width * 2), 0.25, dtype=np.float32)
-    rows = slice((stamp.shape[0] - height) // 2, (stamp.shape[0] + height) // 2)
-    cols = slice((stamp.shape[1] - width) // 2, (stamp.shape[1] + width) // 2)
-    stamp[rows, cols] = 0.5
-    stamp[:rows.start, cols] = 1
-    stamp[rows.stop:, cols] = 1
-    return stamp.T if transpose else stamp
-
-def _placeStamp(img, stamp, top_left):
-    """Pastes stamp into img at top_left (row, col), clipped to the image bounds."""
-    r0, c0 = max(0, int(top_left[0])), max(0, int(top_left[1]))
-    r1, c1 = min(img.shape[0], int(top_left[0]) + stamp.shape[0]), min(img.shape[1], int(top_left[1]) + stamp.shape[1])
-    if r1 > r0 and c1 > c0:
-        img[r0:r1, c0:c1] = stamp[r0 - int(top_left[0]):r1 - int(top_left[0]), c0 - int(top_left[1]):c1 - int(top_left[1])]
-
-def _gridImage(shape, pix_size, lamella_dims_um, transpose, grid_pitch_um=100, n_lamellae=None, margin_squares=1):
-    """Grid squares (0.25) separated by bars (0) with lamellae centred in random grid squares (never on bars)."""
-    img = np.full(shape, 0.25, dtype=np.float32)
-    pitch = grid_pitch_um / pix_size * 1000
-    bar_width = pitch / 3
-    for i in range(int(max(shape) / pitch) + 1):
-        img[:, int(i * pitch): int(i * pitch + bar_width)] = 0
-        img[int(i * pitch): int(i * pitch + bar_width), :] = 0
-
-    stamp = _lamellaStamp(np.array(lamella_dims_um) / pix_size * 1000, transpose)
-    squares = [(r, c) for r in range(margin_squares, int(shape[0] / pitch) - margin_squares) for c in range(margin_squares, int(shape[1] / pitch) - margin_squares)]
-    if n_lamellae is None:
-        n_lamellae = np.random.randint(1, 5)
-    for idx in np.random.permutation(len(squares))[:n_lamellae]:
-        r, c = squares[idx]
-        center = np.array([(r + 0.5) * pitch + bar_width / 2, (c + 0.5) * pitch + bar_width / 2])
-        _placeStamp(img, stamp, center - np.array(stamp.shape) / 2)
-    return img
-
+from SPACEtomo.modules.dummy.specimen import Specimen, toCounts, stageToPixelMatrix
 
 class MicroscopeDummy:
 
@@ -172,11 +84,15 @@ class MicroscopeDummy:
 
         self.dummy_state["imaging_state"] = 1
 
+        # Synthetic grid (created at first image of a grid) and record of acquired maps for the ground truth file
+        self.specimen = None
+        self.acquired_maps = []
+
     ### Properties
 
     @property
     def stage(self):
-        return self.dummy_state["stage"]
+        return self.dummy_state["stage"].copy()     # copy like a fresh SerialEM report (callers keep it as initial position)
     
     @property
     def tilt_angle(self):
@@ -263,14 +179,9 @@ class MicroscopeDummy:
         return True
     
     def getMatrices(self, mag_index=0, camera=None):
-        matrices = {}
-        matrices["s2ss"] = np.array(((-1, 0), (0, -1)))
-        matrices["ss2s"] = np.array(((-1, 0), (0, -1)))
-        matrices["is2ss"] = np.array(((1, 0), (0, 1)))
-        matrices["ss2is"] = np.array(((1, 0), (0, 1)))
-        matrices["c2ss"] = np.array(((1, 0), (0, 1)))
-        matrices["ss2c"] = np.array(((1, 0), (0, 1)))
-        return matrices
+        # Specimen and stage axes coincide in the synthetic world (see dummy/specimen.py)
+        identity = np.identity(2)
+        return {key: identity.copy() for key in ("s2ss", "ss2s", "is2ss", "ss2is", "c2ss", "ss2c")}
     
     ### Setters
 
@@ -416,33 +327,9 @@ class MicroscopeDummy:
     ### Simple actions
 
     def record(self, save="", view=False):
-        """Records an image and optionally saves it to file."""
+        """Records an image of the synthetic grid and optionally saves it to file."""
 
-        # Figure out what kind of dummy image to generate
-        img_array = None
-        if self.dummy_state["imaging_state"] == self.imaging_params.WG_image_state:
-            # Generate LM image
-            img_array = self.dummyImageWG()
-            pix_size = self.imaging_params.WG_pix_size or 400.0
-        elif self.dummy_state['imaging_state'] == self.imaging_params.IM_image_state:
-            # Generate IM image
-            img_array = self.dummyImageIM()
-            pix_size = self.imaging_params.IM_pix_size or 10.0
-        elif self.dummy_state["imaging_state"] == self.imaging_params.MM_image_state or self.dummy_state["imaging_state"] in self.imaging_params.MM_image_state:
-            if self.low_dose_area == "V" or view:
-                # Generate View image
-                pix_size = self.imaging_params.view_pix_size
-            elif self.low_dose_area == "R":
-                # Generate Record image
-                pix_size = self.imaging_params.rec_pix_size
-            else:
-                pix_size = 0.1
-        else:
-            pix_size = 0.1
-
-        if img_array is None:
-            # Generate random noise image
-            img_array = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
+        img_array, pix_size = self._renderCamera(view=view)
 
         # Find file to save to
         if save:
@@ -451,20 +338,21 @@ class MicroscopeDummy:
                 with mrcfile.open(save, mode="r+") as mrc:
                     if mrc.data.ndim == 2:
                         # If single 2D image, convert it to a stack
-                        mrc.set_data(np.stack([mrc.data, img_array], axis=0))
+                        mrc.set_data(np.stack([mrc.data, np.flip(img_array, axis=0)], axis=0))
                     else:
                         # If already a stack of images, concatenate new image
-                        mrc.set_data(np.concatenate((mrc.data, img_array[np.newaxis, ...]), axis=0))
+                        mrc.set_data(np.concatenate((mrc.data, np.flip(img_array, axis=0)[np.newaxis, ...]), axis=0))
                     mrc.update_header_from_data()
                     mrc.update_header_stats()
                 log(f"#DUMMY: Image was appended to {save}!")
             else:
-                writeMrc(save, img_array, pix_size)
+                writeMrc(save, np.flip(img_array, axis=0), pix_size)
                 log(f"#DUMMY: Image was saved to {save}!")
 
             BufferDummy.last_dummy_image = save
         else:
             BufferDummy.last_dummy_image = img_array
+        BufferDummy.last_dummy_info = {"stage": self.stage[:2].copy(), "pix_size": pix_size}
 
         log(f"#DUMMY: Image {save} was recorded!")
 
@@ -587,6 +475,8 @@ class MicroscopeDummy:
         # Initiate loading
         if grid_slot != self.loaded_grid:
             self.loaded_grid = grid_slot
+            self.specimen = None        # New grid
+            self.acquired_maps = []
             log(f"#DUMMY: Loaded grid {self.autoloader[self.loaded_grid]}!")
         else:
             log(f"Grid [{self.autoloader[grid_slot]}] is already loaded.")
@@ -609,14 +499,14 @@ class MicroscopeDummy:
             log(f"ERROR: Beam tilt value not recognized!")
             return None, None
 
-        # Generate two dummy images
-        img1 = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
-        img2 = _toCounts(np.random.rand(*np.flip(self.camera_dims)).astype(np.float32))
+        # Two View images of the same area (no beam tilt induced shift is simulated)
+        img1, pix_size = self._renderCamera(view=True)
+        img2, _ = self._renderCamera(view=True)
 
         if file_path:
-            from SPACEtomo.modules.utils import writeMrc
-            writeMrc(file_path, np.stack([img1, img2], axis=0), self.imaging_params.view_pix_size or 1.0)
+            writeMrc(file_path, np.stack([np.flip(img1, axis=0), np.flip(img2, axis=0)], axis=0), pix_size)
 
+        BufferDummy.last_dummy_info = {"stage": self.stage[:2].copy(), "pix_size": pix_size}
         BufferDummy.last_dummy_image = img1
         buf1 = BufferDummy("A", img=img1)
         BufferDummy.last_dummy_image = img2
@@ -626,152 +516,79 @@ class MicroscopeDummy:
         return buf1, buf2
 
     def collectFullMontage(self, imaging_params, model, overlap):
-        """Collects full grid montage."""
+        """Collects whole grid montage of the synthetic grid at the model pixel size."""
 
         if not len(self.autoloader):
             self.checkAutoloader()
-            
+
         grid_name = self.autoloader[self.loaded_grid]
 
         self.changeImagingState(imaging_params.WG_image_state)
         if self.low_dose:
             log("WARNING: Whole grid montage image state is in Low Dose! This might result in unreasonably large grid maps.")
 
-        # Figure out appropriate binning to get close to model pix size
+        # Use model pix size and save it
         pix_size = model.pix_size
-        binning = 1
+        imaging_params.WG_pix_size = pix_size
 
-        # Save pix size
-        imaging_params.WG_pix_size = pix_size * binning
+        specimen = self._getSpecimen()
+        center = self.stage[:2].copy()
+        size_px = int(specimen.region / pix_size * 1000)
+        grid_map = toCounts(specimen.render(center + specimen.offsets["WG"], (size_px, size_px), pix_size))
 
-        # Generate grid map (1 mm region, lamellae in grid squares)
-        map_size = 1000 # microns
-        grid_map = _gridImage((int(map_size / pix_size * 1000), int(map_size / pix_size * 1000)), pix_size, [15, 25], transpose=abs(imaging_params.view_ta_rotation) < 45)
-        grid_map = _toCounts(_addNoise(grid_map))
-
-        # Save map
+        # Save map (files store rows bottom-up)
         grid_map_file = self.cur_dir / (grid_name + ".mrc")
-        with mrcfile.new(grid_map_file, overwrite=True) as mrc:
-            mrc.set_data(grid_map)
-            mrc.voxel_size = pix_size * 10 # Angstrom
+        writeMrc(grid_map_file, np.flip(grid_map, axis=0), pix_size)
 
-        map_id = self.nav.newMapFromImg(label=grid_name[:6], template_id=None, coords=self.stage[:2], img_file=grid_map_file, note=grid_map_file.name)
+        map_id = self.nav.newMapFromImg(label=grid_name[:6], template_id=None, coords=center, img_file=grid_map_file, note=grid_map_file.name,
+                                        entry_overrides={"MapScaleMat": [str(val) for val in np.ravel(stageToPixelMatrix(pix_size))]})
 
         BufferDummy.last_dummy_image = grid_map_file
+        BufferDummy.last_dummy_info = {"stage": center, "pix_size": pix_size}
+        self._saveGroundTruth()
 
         log(f"#DUMMY: Collected whole grid montage at [{grid_map_file.stem}]!")
 
         return map_id
 
-    def collectPolygonMontage(self, poly_id, file, overlap):
-        """Collects montage at polygon using View mode."""
+    def collectPolygonMontage(self, poly_id, file, overlap, max_pixels=16e6):
+        """Collects View montage of the polygon area of the synthetic grid and writes its ground truth segmentation."""
 
         self.changeLowDoseArea("V")
-        # Setup polygon montage
+
+        # Polygon extent in stage coords
+        polygon = self.nav.items[poly_id]
+        pts = np.array([[float(x) for x in polygon.entries["PtsX"]], [float(y) for y in polygon.entries["PtsY"]]])
+        center = (pts.min(axis=1) + pts.max(axis=1)) / 2
+        extent = pts.max(axis=1) - pts.min(axis=1)
+
+        # Bin montage if it would be very large
         pix_size = self.imaging_params.view_pix_size
+        binning = max(1, int(np.ceil(np.sqrt(np.prod(extent * 1000 / pix_size) / max_pixels))))
+        pix_size *= binning
+        shape = np.round(np.flip(extent) * 1000 / pix_size).astype(int)
 
-        map_size = np.array([35, 40]) / pix_size * 1000       # width, height in pixels
-        lamella_dims = np.array([15, 25]) / pix_size * 1000   # width, height in pixels
+        specimen = self._getSpecimen()
+        world_center = center + specimen.offsets["MM"]
+        lamella_map, seg_map = specimen.render(world_center, shape, pix_size, detail=True, seg=True)
+        lamella_map = toCounts(lamella_map)
 
-        # Generate map with black background
-        lamella_map = np.full((int(map_size[1]), int(map_size[0])), cats_intensity["black"], dtype=np.float32)
-        seg_map = np.full((int(map_size[1]), int(map_size[0])), cats["black"], dtype=np.uint8)
+        # Save map (files store rows bottom-up)
+        writeMrc(file, np.flip(lamella_map, axis=0), pix_size)
 
-        # Generate lamella
-        lamella_width = int(lamella_dims[0])
-        lamella_height = int(lamella_dims[1])
-
-        # Lamella background
-        lamella_map[int(lamella_map.shape[0] - lamella_height) // 2: int(lamella_map.shape[0] + lamella_height) // 2, int(lamella_map.shape[1] - lamella_width) // 2: int(lamella_map.shape[1] + lamella_width) // 2] = cats_intensity["background"]
-        seg_map[int(seg_map.shape[0] - lamella_height) // 2: int(seg_map.shape[0] + lamella_height) // 2, int(seg_map.shape[1] - lamella_width) // 2: int(seg_map.shape[1] + lamella_width) // 2] = cats["background"]
-
-        # Lamella trenches
-        lamella_map[:int(lamella_map.shape[0] - lamella_height) // 2, int(lamella_map.shape[1] - lamella_width) // 2: int(lamella_map.shape[1] + lamella_width) // 2] = cats_intensity["white"]
-        lamella_map[int(lamella_map.shape[0] + lamella_height) // 2:, int(lamella_map.shape[1] - lamella_width) // 2: int(lamella_map.shape[1] + lamella_width) // 2] = cats_intensity["white"]
-
-        seg_map[:int(seg_map.shape[0] - lamella_height) // 2, int(seg_map.shape[1] - lamella_width) // 2: int(seg_map.shape[1] + lamella_width) // 2] = cats["white"]
-        seg_map[int(seg_map.shape[0] + lamella_height) // 2:, int(seg_map.shape[1] - lamella_width) // 2: int(seg_map.shape[1] + lamella_width) // 2] = cats["white"]
-
-        # Make drawing canvas
-        lamella_canvas = Image.fromarray(lamella_map)
-        lamella_draw = ImageDraw.Draw(lamella_canvas)
-        seg_canvas = Image.fromarray(seg_map)
-        seg_draw = ImageDraw.Draw(seg_canvas)
-
-        # Draw cell
-        cell_size = np.array([5, 7]) / pix_size * 1000
-        random_coords = np.random.rand(30, 2) * (lamella_dims - cell_size) + (np.flip(lamella_map.shape) - lamella_dims) // 2
-        cell_coords = []
-        for c, coords in enumerate(random_coords):
-            if min([np.linalg.norm(coords - random) for random in random_coords[c + 1:]] + [1e9]) < min(cell_size): 
-                continue
-            lamella_draw.ellipse((*coords, *(coords + cell_size)), fill=cats_intensity["cell"], outline=cats_intensity["cellwall"], width=int(0.5 / pix_size * 1000))
-            seg_draw.ellipse((*coords, *(coords + cell_size)), fill=cats["cell"], outline=cats["cellwall"], width=int(0.5 / pix_size * 1000))
-            cell_coords.append(coords)
-
-        # Draw organelles
-        mito_size = np.array([1, 2]) / pix_size * 1000
-        nuc_size = np.array([3, 3]) / pix_size * 1000
-        vac_size = np.array([3, 3]) / pix_size * 1000
-
-        for cell in cell_coords:
-            # Mitos
-            random_coords = np.random.rand(3, 2) * (0.8 * cell_size - mito_size) + cell + cell_size * 0.1
-            for coords in random_coords:
-                lamella_draw.ellipse((*coords, *(coords + mito_size)), fill=cats_intensity["mitos"])
-                seg_draw.ellipse((*coords, *(coords + mito_size)), fill=cats["mitos"])
-
-            # Nucleus
-            random_coords = np.random.rand(1, 2) * (0.8 * cell_size - nuc_size) + cell + cell_size * 0.1
-            for coords in random_coords:
-                size = nuc_size * np.random.uniform(0.3, 1)
-                lamella_draw.ellipse((*coords, *(coords + size)), fill=cats_intensity["nucleus"])
-                seg_draw.ellipse((*coords, *(coords + size)), fill=cats["nucleus"])
-
-            # Vacuole
-            random_coords = np.random.rand(1, 2) * (0.8 * cell_size - vac_size) + cell + cell_size * 0.1
-            for coords in random_coords:
-                size = vac_size * np.random.uniform(0.5, 1)
-                lamella_draw.ellipse((*coords, *(coords + size)), fill=cats_intensity["vacuole"])
-                seg_draw.ellipse((*coords, *(coords + size)), fill=cats["vacuole"])
-
-        # Draw ice blobs
-        max_size = np.array([3, 3]) / pix_size * 1000
-        random_coords = np.random.rand(10, 2) * (lamella_dims - max_size) + (np.flip(lamella_map.shape) - lamella_dims) // 2
-        for c, coords in enumerate(random_coords):
-            size = np.random.uniform() * max_size
-            lamella_draw.ellipse((*coords, *(coords + size)), fill=cats_intensity["ice"])
-            seg_draw.ellipse((*coords, *(coords + size)), fill=cats["ice"])
-
-        # Revert back to array
-        lamella_map = np.array(lamella_canvas)
-        seg_map = np.array(seg_canvas)
-
-        # Lamella coating
-        seg_map[int((seg_map.shape[0] + lamella_height) // 2 - seg_map.shape[0] / 10): int(seg_map.shape[0] + lamella_height) // 2, int(seg_map.shape[1] - lamella_width) // 2: int(seg_map.shape[1] + lamella_width) // 2] = cats["coating"]
-        lamella_map[int((lamella_map.shape[0] + lamella_height) // 2 - lamella_map.shape[0] / 10): int(lamella_map.shape[0] + lamella_height) // 2, int(lamella_map.shape[1] - lamella_width) // 2: int(lamella_map.shape[1] + lamella_width) // 2] = cats_intensity["coating"]
-
-        # Add 50% noise
-        lamella_map = _toCounts(_addNoise(lamella_map, fraction=0.5))
-
-        # Align lamella with tilt axis
-        if abs(self.imaging_params.view_ta_rotation) < 45:
-            lamella_map = lamella_map.T
-            seg_map = seg_map.T
-
-        # Save map
-        with mrcfile.new(file, overwrite=True) as mrc:
-            mrc.set_data(lamella_map)
-            mrc.voxel_size = pix_size * 10 # Angstrom
-
-        # Save seg in model pix size
+        # Save ground truth segmentation in model pix size
         model_size = np.round(np.flip(seg_map.shape) * pix_size / config.MM_model_pix_size).astype(int)
-        Image.fromarray(np.flip(seg_map, axis=0)).resize(tuple(model_size), resample=Image.Resampling.NEAREST).save(self.map_dir / (file.stem + "_seg.png"))
+        Image.fromarray(seg_map).resize(tuple(model_size), resample=Image.Resampling.NEAREST).save(self.map_dir / (file.stem + "_seg.png"))
 
         lamella_name = file.stem.split("_")[-1]
-        map_id = self.nav.newMapFromImg(label=lamella_name, template_id=None, coords=self.stage[:2], img_file=file, note=file.name)
+        map_id = self.nav.newMapFromImg(label=lamella_name, template_id=None, coords=center, img_file=file, note=file.name,
+                                        entry_overrides={"MapScaleMat": [str(val) for val in np.ravel(stageToPixelMatrix(pix_size))]})
+
+        self.acquired_maps.append({"name": file.stem, "nominal_center": center.tolist(), "world_center": world_center.tolist(), "pix_size": pix_size})
+        self._saveGroundTruth()
 
         BufferDummy.last_dummy_image = file
+        BufferDummy.last_dummy_info = {"stage": center, "pix_size": pix_size}
 
         log(f"#DUMMY: Collected medium mag montage at [{file.stem}]!")
 
@@ -781,24 +598,49 @@ class MicroscopeDummy:
 
     # Dummy image generation
     def dummyImageWG(self):
-        """Camera image at whole grid mag (grid bars and 1-4 lamellae in grid squares)."""
-
-        pix_size = self.imaging_params.WG_pix_size or 400.0
-        map_img = _gridImage(np.flip(self.camera_dims), pix_size, [15, 25], transpose=abs(self.imaging_params.view_ta_rotation) < 45, margin_squares=0)
-
-        log(f"#DUMMY: Generated LM mag image!")
-        return _toCounts(_addNoise(map_img))
+        """Camera image of the synthetic grid at whole grid mag at the current stage position."""
+        return self._renderCamera(state_key="WG")[0]
 
     def dummyImageIM(self):
-        """Camera image at intermediate mag with one lamella at a random position."""
+        """Camera image of the synthetic grid at intermediate mag at the current stage position."""
+        return self._renderCamera(state_key="IM")[0]
 
-        pix_size = self.imaging_params.IM_pix_size or 10.0
-        map_img = np.full(np.flip(self.camera_dims), 0.25, dtype=np.float32)
+    ### Synthetic grid
 
-        stamp = _lamellaStamp(np.array([15, 25]) / pix_size * 1000, transpose=abs(self.imaging_params.view_ta_rotation) < 45)
-        stamp = stamp[:map_img.shape[0], :map_img.shape[1]]
-        top_left = np.random.rand(2) * np.maximum(0, np.array(map_img.shape) - np.array(stamp.shape))
-        _placeStamp(map_img, stamp, top_left)
+    def _stateKey(self):
+        """Offset key of the current imaging state."""
+        if self.dummy_state["imaging_state"] == self.imaging_params.WG_image_state:
+            return "WG"
+        if self.dummy_state["imaging_state"] == self.imaging_params.IM_image_state:
+            return "IM"
+        return "MM"
 
-        log(f"#DUMMY: Generated IM mag image!")
-        return _toCounts(_addNoise(map_img))
+    def _getSpecimen(self):
+        """Synthetic grid of the loaded grid (created around the current stage position on first use)."""
+        if self.specimen is None:
+            self.specimen = Specimen(seed=np.random.randint(2**31), center=self.stage[:2],
+                                     vertical=abs(self.imaging_params.view_ta_rotation) >= 45)
+            log(f"#DUMMY: Created synthetic grid with {len(self.specimen.lamellae)} lamellae (seed {self.specimen.seed}).")
+        return self.specimen
+
+    def _saveGroundTruth(self):
+        """Writes lamellae, image offsets and acquired maps for test assertions."""
+        self._getSpecimen().save(self.cur_dir / "dummy_ground_truth.json", extra={"maps": self.acquired_maps})
+
+    def _renderCamera(self, state_key=None, view=False):
+        """Renders a camera image (int16 counts) at the current stage position and returns it with its pixel size."""
+
+        state_key = state_key or self._stateKey()
+        if state_key == "WG":
+            pix_size = self.imaging_params.WG_pix_size or 400.0
+        elif state_key == "IM":
+            pix_size = self.imaging_params.IM_pix_size or 10.0
+        elif self.low_dose_area == "R" and not view:
+            pix_size = self.imaging_params.rec_pix_size
+        else:
+            pix_size = self.imaging_params.view_pix_size
+
+        specimen = self._getSpecimen()
+        img = specimen.render(self.stage[:2] + specimen.offsets[state_key], np.flip(self.camera_dims), pix_size, detail=state_key == "MM")
+        log(f"#DUMMY: Generated {state_key} image!")
+        return toCounts(img), pix_size

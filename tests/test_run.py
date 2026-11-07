@@ -9,9 +9,11 @@ Skip slow: pytest tests/ -m "not slow"
 """
 
 import importlib
+import json
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tests.conftest import make_settings
@@ -40,6 +42,34 @@ def _run_spacetomo(session_dir: Path, automation_level: int, capsys, manual_sele
     assert "SPACEtomo run completed" in capsys.readouterr().out
 
 
+# --- Ground truth of the synthetic grid (written by MicroscopeDummy) ---
+
+def _ground_truth(grid_dir):
+    from SPACEtomo.modules.dummy.specimen import Specimen
+    truth = json.loads((grid_dir / "dummy_ground_truth.json").read_text())
+    specimen = Specimen(truth["seed"])
+    assert [lamella.toDict() for lamella in specimen.lamellae] == truth["lamellae"]
+    return truth, specimen
+
+
+def _distance_to_lamellae(point, truth):
+    return min(np.linalg.norm(np.array(point) - lamella["center"]) for lamella in truth["lamellae"])
+
+
+def _nav_polygons(grid_dir, prefix):
+    """Centers of the polygon/map items whose label starts with prefix."""
+    from SPACEtomo.modules.nav import Navigator
+    nav = Navigator.__new__(Navigator)
+    nav.file, nav.header, nav.items = grid_dir / "G01.nav", "", []
+    nav.readFromFile()
+    centers = []
+    for item in nav.items:
+        if item.label.startswith(prefix) and "PtsX" in item.entries:
+            pts = np.array([item.entries["PtsX"], item.entries["PtsY"]], dtype=float)
+            centers.append((pts.min(axis=1) + pts.max(axis=1)) / 2)
+    return centers
+
+
 @pytest.mark.slow
 def test_run_level1(session_dir, capsys):
     """Level 1: WG montage + lamella detection."""
@@ -52,6 +82,12 @@ def test_run_level1(session_dir, capsys):
     map_dir = grid_dir / "SPACE_maps"
     wg_files = list(map_dir.glob("G01_wg*"))
     assert len(wg_files) > 0, "WG map files not created"
+
+    # Detected lamellae (PP polygons) are at true lamellae of the synthetic grid
+    truth, _ = _ground_truth(grid_dir)
+    pp_centers = _nav_polygons(grid_dir, "PP")
+    assert pp_centers, "No lamellae detected"
+    assert all(_distance_to_lamellae(center, truth) < 3 for center in pp_centers), f"PP polygons {pp_centers} not at lamellae {truth['lamellae']}"
 
 
 @pytest.mark.slow
@@ -73,6 +109,12 @@ def test_run_level2(session_dir, capsys):
     mm_files = list(grid_dir.glob("G01_*.mrc"))
     # Should have WG + IM + at least one MM map
     assert len(mm_files) >= 2, f"Expected at least 2 MRC files, found {len(mm_files)}"
+
+    # After IM alignment and MM realignment, MM maps are centered on true lamellae (despite simulated image offsets)
+    truth, _ = _ground_truth(grid_dir)
+    assert truth["maps"], "No MM maps in ground truth"
+    for mm_map in truth["maps"]:
+        assert _distance_to_lamellae(mm_map["world_center"], truth) < 3, f"MM map {mm_map} not centered on a lamella"
 
 
 @pytest.mark.slow
@@ -114,3 +156,17 @@ def test_run_level4(session_dir, capsys):
 
     tgt_params = list(grid_dir.glob("tgt_params.json"))
     assert len(tgt_params) > 0, "No tgt_params.json created"
+
+    # Targets (stage coords in the MM map frame) cover target classes of the true grid in their Record field of view
+    from SPACEtomo.modules.dummy.specimen import CATS
+    truth, specimen = _ground_truth(grid_dir)
+    target_classes = [CATS[name] for name in ("coating", "mitos")]
+    for tgt_file in tgt_files:
+        # Only target blocks ("_tgt = ..."), not geo points ("_geo = ...")
+        blocks = [dict(line.split(" = ", 1) for line in block.splitlines()) for block in tgt_file.read_text().strip().split("\n\n")]
+        for block in [block for block in blocks if "_tgt" in block]:
+            point = (float(block["stageX"]), float(block["stageY"]))
+            world = np.array(point) + truth["offsets"]["MM"]
+            _, seg = specimen.render(world, (256, 256), 6144 / 256, detail=True, seg=True)   # Record FOV (6.1 µm)
+            # Half the selection threshold (0.095), allowing for the residual map offset of up to ~2 µm
+            assert np.isin(seg, target_classes).mean() > 0.05, f"Target {point} ({tgt_file.name}) does not cover target classes"
