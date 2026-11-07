@@ -129,6 +129,9 @@ def getLowDoseParams(area: str):
     finally:
         sem.EndTry()
 
+    # SerialEM stores the parameters as one line of text
+    ld_params = [float(val) for val in str(ld_params).split()]
+
     # LowDoseParameters:
     # There are three sets of parameters, for TEM, EFTEM, and STEM.
     #  1. low dose set number 0 to 4 for V F T R S, or negative of state number (numbered from 1)   3

@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/11/06: aperture commands try integer id first and fall back to letter
+# Last Change:  2026/11/07: fixed Low Dose area being stored as number after changing imaging state
+#               2026/11/06: aperture commands try integer id first and fall back to letter
 #               2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
 #               2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
 #               2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
@@ -476,7 +477,7 @@ class Microscope:
         # Check if imaging state is a low dose state.
         low_dose, area = sem.ReportLowDose()
         self.low_dose = bool(low_dose)
-        self.low_dose_area = area
+        self.low_dose_area = "VFTRS"[int(area)] if self.low_dose and area >= 0 else None     # SerialEM reports the area as 0-4, -1 if undefined
 
         # Check if imaging state fits expectation
         if low_dose_expected is not None:

@@ -117,7 +117,7 @@ def test_getLowDoseParams_ends_try_on_success(monkeypatch):
 
     sem = StubSEM()
     sem.GetLowDoseAreaParams = lambda *args: None
-    sem.GetVariable = lambda name: [0.0, 25.0] + [0.0] * 19
+    sem.GetVariable = lambda name: "0 25 " + " ".join(["0.000000"] * 19)     # SerialEM stores the parameters as text
     monkeypatch.setattr(usem, "sem", sem, raising=False)
 
     assert usem.getLowDoseParams("V")["mag_index"] == 25.0
