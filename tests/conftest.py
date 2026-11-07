@@ -17,6 +17,31 @@ import SPACEtomo.config as config
 config.DUMMY = True
 
 
+# Every test runs once per emulated SerialEM version (restrict with --sem-version 4.2)
+def pytest_addoption(parser):
+    import serialem
+    parser.addoption("--sem-version", action="append", choices=serialem.versions(),
+                     help="SerialEM version(s) the mock emulates (default: all)")
+
+
+def pytest_generate_tests(metafunc):
+    import serialem
+    if "sem_version" in metafunc.fixturenames:
+        chosen = metafunc.config.getoption("sem_version") or serialem.versions()
+        metafunc.parametrize("sem_version", chosen, indirect=True, ids=lambda v: f"sem{v}")
+
+
+@pytest.fixture(autouse=True)
+def sem_version(request):
+    """Emulated SerialEM version for the test (each test starts with a fresh mock state)."""
+    import serialem
+    previous = serialem.get_version()
+    serialem.set_version(request.param)
+    serialem.reset_mock_state()
+    yield request.param
+    serialem.set_version(previous)
+
+
 @pytest.fixture()
 def test_dir(tmp_path):
     """Create a temporary session directory with mic_params and settings."""

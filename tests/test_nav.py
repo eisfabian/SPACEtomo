@@ -79,7 +79,10 @@ def nav_file(tmp_path):
 
 @pytest.fixture
 def nav(nav_file):
-    """Parse the sample nav file."""
+    """Parse the sample nav file (opened in SerialEM, as in a real session)."""
+    import serialem
+    serialem.ReadNavFile(str(nav_file))
+
     n = Navigator.__new__(Navigator)
     n.file = nav_file
     n.header = ""

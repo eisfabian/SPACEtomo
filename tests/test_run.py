@@ -33,7 +33,9 @@ def _run_spacetomo(session_dir: Path, automation_level: int, manual_selection: b
     # Safety: ensure SES_DIR matches (reload should set it via getSessionDir)
     run_module.SES_DIR = session_dir
 
-    run_module.main()
+    # A finished run ends the script with sem.Exit(), which raises SEMexited like in SerialEM
+    with pytest.raises(sem.SEMexited, match="Normal exit"):
+        run_module.main()
 
 
 @pytest.mark.slow

@@ -39,6 +39,10 @@ class SEMerror(Exception):
     """Raised when a SerialEM script command fails (used with StartTry/EndTry)."""
     pass
 
+class SEMexited(Exception):
+    """Raised when the script exits (Exit() without a non-zero code, or user STOP)."""
+    pass
+
 
 # ---------------------------------------------------------------------------
 # Internal state
@@ -119,6 +123,7 @@ class _State:
         self.nav_open = True
         self.nav_file = "temp.nav"
         self.nav_items = []  # list of dicts
+        self.current_nav_index = 0  # 1-based, 0 = no current item
         self.nav_acquire_count = 0
 
         # Files
@@ -128,7 +133,7 @@ class _State:
 
         # Persistent variables
         self.persistent_vars = {}
-        self.script_vars = {"imageTickTime": str(time.time())}
+        self.script_vars = {"imageTickTime": time.time()}
 
         # User settings
         self.user_settings = {
@@ -184,25 +189,29 @@ def Delay(duration, unit="s"):
     """Mock delay - does nothing for speed, but accepts the call."""
     pass
 
-def SuppressReports():
+def SuppressReports(flag=1):
     pass
 
-def ErrorsToLog():
+def ErrorsToLog(flag=1):
     pass
 
-def SetNewFileType(file_type):
+def SetNewFileType(file_type, montage_type=0):
     pass
 
-def ProgramTimeStamps():
+def ProgramTimeStamps(startup=0, options=0):
     pass
 
 def SaveSettings():
     pass
 
-def Exit():
-    pass
+def Exit(exc=0, text=""):
+    """Ends the script; like a script run from SerialEM, raises SEMexited unless exc is non-zero."""
+    if text:
+        print(text)
+    if not exc:
+        raise SEMexited("Normal exit")
 
-def KeyBreak():
+def KeyBreak(key="B"):
     return 0
 
 
@@ -276,7 +285,7 @@ def MoveStage(dx, dy, dz=0):
 def ReportTiltAngle():
     return _state.tilt_angle
 
-def TiltTo(angle):
+def TiltTo(angle, reset_is=0, x=0.0, y=0.0):
     _state.tilt_angle = float(angle)
 
 def ReportStageBusy():
@@ -304,7 +313,7 @@ def ImageShiftByMicrons(dx, dy, *args):
     _state.image_shift[0] += float(dx)
     _state.image_shift[1] += float(dy)
 
-def ResetImageShift():
+def ResetImageShift(backlash=0, relax=0.025):
     _state.image_shift = [0.0, 0.0]
 
 def ReportSpecimenShift():
@@ -399,7 +408,7 @@ def SetColumnOrGunValve(state):
 def ReportMag():
     return (_state.mag, _state.low_mag_mode, 0)
 
-def SetMag(mag):
+def SetMag(mag, stem_direct=0):
     _state.mag = int(mag)
     _state.camera_pix_size = 12323.0 / _state.mag
 
@@ -462,7 +471,7 @@ def ReportEnergyFilter():
         raise SEMerror("No energy filter available")
     return (_state.slit_width, _state.energy_loss, _state.slit_in)
 
-def SetSlitIn(state):
+def SetSlitIn(state=1):
     _state.slit_in = int(state)
 
 def SetSlitWidth(width):
@@ -471,7 +480,7 @@ def SetSlitWidth(width):
 def SetEnergyLoss(loss):
     _state.energy_loss = float(loss)
 
-def RefineZLP(interval_min=0, trial_or_preview=-1):
+def RefineZLP(interval_min=0, trial_or_preview=0, retry=0, allow_fail=0):
     pass
 
 
@@ -479,17 +488,14 @@ def RefineZLP(interval_min=0, trial_or_preview=-1):
 # Apertures
 # ---------------------------------------------------------------------------
 
-def ReportApertureSize(aperture_type):
-    if aperture_type == 'C':
-        return _state.c_aperture
-    elif aperture_type == 'O':
-        return _state.o_aperture
-    return 0
+def ReportApertureSize(aperture):
+    """Aperture indexes as in SerialEM: 1 condenser (C2), 2 objective; 0 = retracted/not present."""
+    return {1: _state.c_aperture, 2: _state.o_aperture}.get(aperture, 0)
 
-def SetApertureSize(aperture_type, size):
-    if aperture_type == 'C':
+def SetApertureSize(aperture, size):
+    if aperture == 1:
         _state.c_aperture = int(size)
-    elif aperture_type == 'O':
+    elif aperture == 2:
         _state.o_aperture = int(size)
 
 
@@ -498,7 +504,9 @@ def SetApertureSize(aperture_type, size):
 # ---------------------------------------------------------------------------
 
 def ReportLowDose():
-    return (_state.low_dose_mode, _state.low_dose_area)
+    """Returns (on/off, area index 0-4 for V F T R S or -1 if undefined), never letters."""
+    area = "VFTRS".index(_state.low_dose_area) if _state.low_dose_area in ("V", "F", "T", "R", "S") else -1
+    return (_state.low_dose_mode, area)
 
 def SetLowDoseMode(mode):
     _state.low_dose_mode = int(mode)
@@ -531,7 +539,7 @@ def GetLowDoseAreaParams(area, var_name):
         0.0, 0.0,             # dark field tilt
         100.0,                 # dose modulation
     ]
-    _state.script_vars[var_name] = params
+    _state.script_vars[var_name] = ("%d %d %d %f %f %d %d %f %f %d %f %f %f %f %f %f %d %d %f %f %f" % tuple(params))
 
 
 # ---------------------------------------------------------------------------
@@ -555,9 +563,9 @@ def GoToImagingState(state_name_or_number):
         return 1  # error: not found
 
     _state.current_imaging_state = index
-    if low_dose >= 0:
+    if low_dose >= 0:       # state type 0-5: Low Dose V, F, T, R, S, or R with Mont-Map parameters
         _state.low_dose_mode = 1
-        _state.low_dose_area = "R"
+        _state.low_dose_area = "VFTRSR"[low_dose]
     else:
         _state.low_dose_mode = 0
         _state.low_dose_area = None
@@ -591,7 +599,7 @@ def _generate_dummy_image():
     """Generate a random noise image matching camera dims."""
     img = np.random.rand(_state.camera_dims[1], _state.camera_dims[0]).astype(np.float32) * 200 + 28
     _state.buffers["A"] = img
-    _state.script_vars["imageTickTime"] = str(time.time())
+    _state.script_vars["imageTickTime"] = time.time()
     return img
 
 def R():
@@ -610,7 +618,7 @@ def T():
     """Trial."""
     return _generate_dummy_image()
 
-def S(section=None):
+def S(buffer="A", file_number=0):
     """Save current buffer to file."""
     pass
 
@@ -632,7 +640,7 @@ def G(action=1, trial=-1):
 # Eucentricity & alignment
 # ---------------------------------------------------------------------------
 
-def Eucentricity(mode=1):
+def Eucentricity(mode=2, use_view=0):
     pass
 
 def AlignTo(buffer, avoid_is=0, *args):
@@ -667,7 +675,7 @@ def LoadOtherMap(nav_id, buffer="A"):
 
 def PutImageInBuffer(img_array, buffer, sizeX, sizeY, source_buf="A"):
     _state.buffers[buffer] = np.array(img_array)
-    _state.script_vars["imageTickTime"] = str(time.time())
+    _state.script_vars["imageTickTime"] = time.time()
 
 def bufferImage(buffer_letter):
     """Returns image from buffer as numpy array."""
@@ -686,7 +694,7 @@ def ImageConditions(buffer="A"):
     """Returns: dose, magnification, ..."""
     return (1.0, _state.mag)
 
-def ReportMeanCounts(buffer="A"):
+def ReportMeanCounts(buffer="A", option=0):
     if buffer in _state.buffers:
         return float(np.mean(_state.buffers[buffer]))
     return np.random.uniform(50, 200)
@@ -786,6 +794,7 @@ def CloseNavigator():
 def ReadNavFile(path):
     _state.nav_file = str(path)
     _state.nav_open = True
+    _state.current_nav_index = 1     # SerialEM selects the first item of a loaded navigator
 
 def SaveNavigator(path=None):
     """Save navigator file. In mock mode, calls registered callback to write nav state to disk."""
@@ -807,8 +816,11 @@ def RegisterNavSaveCallback(callback):
     this to ensure its in-memory state is persisted before re-reading."""
     _state._save_nav_callback = callback
 
-def ReportNavFile():
-    return _state.nav_file
+def ReportNavFile(parts=0):
+    if not parts:
+        return _state.nav_file
+    nav_file = Path(_state.nav_file)
+    return (str(nav_file.with_suffix("")), nav_file.suffix, str(nav_file.parent) + "/", nav_file.stem)
 
 def ReportIfNavOpen():
     return 2 if _state.nav_open else 0  # 2 = open and saved, 1 = open but not saved, 0 = not open
@@ -829,24 +841,30 @@ def NavIndexWithNote(note_substr):
             return i + 1
     return 0
 
-def ReportNavItem(index=None):
-    """Returns x, y, z, type, ..."""
-    if index and 0 < index <= len(_state.nav_items):
-        item = _state.nav_items[index - 1]
-        return (item.get("x", 0), item.get("y", 0), item.get("z", 0), item.get("type", 0))
-    return (0.0, 0.0, 0.0, 0)
+def _nav_item_report(index):
+    if not index:
+        raise SEMerror("There is no current Navigator item")
+    item = _state.nav_items[index - 1] if 0 < index <= len(_state.nav_items) else {}
+    return (index, item.get("x", 0.0), item.get("y", 0.0), item.get("z", 0.0), item.get("type", 0))
 
-def ReportOtherItem(index, key=None):
-    if index and 0 < index <= len(_state.nav_items):
-        item = _state.nav_items[index - 1]
-        return item.get(key, "")
-    return ""
+def ReportNavItem():
+    """Reports the current item: (index, x, y, z, type)."""
+    return _nav_item_report(_state.current_nav_index)
 
-def AddImagePosAsNavPoint(buffer, x, y):
+def ReportOtherItem(index):
+    """Reports item index (negative counts from the end): (index, x, y, z, type)."""
+    if index < 0:
+        index = len(_state.nav_items) + index + 1
+    if not 0 < index <= len(_state.nav_items):
+        raise SEMerror("Index is out of range in statement: ReportOtherItem")
+    return _nav_item_report(index)
+
+def AddImagePosAsNavPoint(buffer, x, y, z=-999.0, group_id=0, no_redraw=0):
     """Adds a navigator point from buffer image position. Returns 1-based index."""
     _state.nav_items.append({"label": str(len(_state.nav_items) + 1),
-                             "x": float(x), "y": float(y), "z": 0.0,
-                             "type": 0, "note": ""})
+                             "x": float(x), "y": float(y), "z": float(z) if z > -990 else 0.0,
+                             "type": 0, "note": "", "group_id": int(group_id)})
+    _state.current_nav_index = len(_state.nav_items)
     return len(_state.nav_items)
 
 def DeleteNavigatorItem(index):
@@ -857,7 +875,7 @@ def ChangeItemLabel(index, label):
     if 0 < index <= len(_state.nav_items):
         _state.nav_items[index - 1]["label"] = str(label)
 
-def ChangeItemNote(index, note):
+def ChangeItemNote(index, note=""):
     if 0 < index <= len(_state.nav_items):
         _state.nav_items[index - 1]["note"] = str(note)
 
@@ -865,25 +883,29 @@ def ChangeItemColor(index, color):
     if 0 < index <= len(_state.nav_items):
         _state.nav_items[index - 1]["color"] = int(color)
 
-def ChangeItemDraw(index, draw):
+def ChangeItemDraw(index, draw=None):
     if 0 < index <= len(_state.nav_items):
-        _state.nav_items[index - 1]["draw"] = int(draw)
+        item = _state.nav_items[index - 1]
+        item["draw"] = int(not item.get("draw", 1)) if draw is None else int(bool(draw))
 
-def SetItemAcquire(index, state=1):
+def SetItemAcquire(index=0, state=1):
     if 0 < index <= len(_state.nav_items):
         _state.nav_items[index - 1]["acquire"] = int(state)
 
-def SetSelectedNavItem(index):
-    pass
+def SetSelectedNavItem(index, no_redraw=0):
+    _state.current_nav_index = int(index)
 
-def ShiftItemsByMicrons(start, end, dx, dy):
-    pass
+def ShiftItemsByMicrons(dx, dy, registration=-1, as_marker_shift=0):
+    for item in _state.nav_items:
+        item["x"] += float(dx)
+        item["y"] += float(dy)
 
 def NewMap(flag=0, filename=""):
     """Returns 1-based nav index of new map."""
     _state.nav_items.append({"label": "Map", "x": _state.stage_xyz[0],
                              "y": _state.stage_xyz[1], "z": _state.stage_xyz[2],
                              "type": 2, "note": filename, "map_file": filename})
+    _state.current_nav_index = len(_state.nav_items)
     return len(_state.nav_items)
 
 def GetUniqueNavID():
@@ -906,7 +928,7 @@ def OpenOldFile(path):
         _state.open_files.append(str(path))
     _state.current_file_index = _state.open_files.index(str(path)) + 1
 
-def CloseFile():
+def CloseFile(stop_if_none=""):
     if _state.open_files and _state.current_file_index > 0:
         idx = _state.current_file_index - 1
         if idx < len(_state.open_files):
@@ -931,7 +953,7 @@ def ReportFileZsize():
 def ReportNumOpenFiles():
     return len(_state.open_files)
 
-def ReportOpenImageFile(file_number):
+def ReportOpenImageFile(file_number, parts=0):
     idx = int(file_number) - 1
     if 0 <= idx < len(_state.open_files):
         return _state.open_files[idx]
@@ -957,13 +979,13 @@ def SetupPolygonMontage(nav_id, flag, filename):
 def OpenNewMontage(sizeX, sizeY, filename):
     OpenNewFile(filename)
 
-def SetMontageParams(stage_move, overlapX, overlapY, sizeX, sizeY, skip_corr, binning):
+def SetMontageParams(stage_move, overlapX=-1, overlapY=-1, sizeX=-1, sizeY=-1, skip_corr=-1, binning=-1, max_is=-1, flexible=-1):
     pass
 
 def SetMontPanelParams(*args):
     pass
 
-def ParamSetToUseForMontage(param_set):
+def ParamSetToUseForMontage(param_set, defer=0):
     pass
 
 def ReportNumMontagePieces():
@@ -986,7 +1008,7 @@ def LoadCartridge(slot):
 def UnloadCartridge():
     pass
 
-def LongOperation(operation_type):
+def LongOperation(operation_type, *operations_and_intervals):
     pass
 
 
@@ -1013,8 +1035,8 @@ def Ctfplotter(buffer, low, high, *args):
     defocus = np.random.uniform(low, high)
     return (defocus, 0, 0, 0, 0, 0)
 
-def AutoCorrPeakVectors(buffer, spacing_px, flag1, flag2):
-    """Returns (peak, v1x, v1y, v2x, v2y, ...)."""
+def AutoCorrPeakVectors(buffer, spacing_px, skip_trim=0, skip_display=0):
+    """Returns (spacing, v1x, v1y, v2x, v2y, ...)."""
     spacing = spacing_px
     return (1.0, spacing, 0.0, 0.0, spacing, 0.0)
 
@@ -1029,15 +1051,14 @@ def SetStatusLine(line, text):
 def ClearStatusLine(line=0):
     pass
 
-def SetNextLogOutputStyle(style, color=0):
+def SetNextLogOutputStyle(style, color=0, green=0, blue=0):
     pass
 
-def EchoBreakLines(text_or_flag):
+def EchoBreakLines(text=""):
     """In mock mode, print to stdout so log messages are visible."""
-    if isinstance(text_or_flag, str):
-        print(text_or_flag)
+    print(text)
 
-def NoMessageBoxOnError(flag):
+def NoMessageBoxOnError(flag=1):
     pass
 
 def OKBox(text):
@@ -1047,7 +1068,7 @@ def YesNoBox(text):
     """Always returns 1 (Yes) in mock mode."""
     return 1
 
-def Pause(text):
+def Pause(text=""):
     pass
 
 def EnterString(var_name, prompt):
@@ -1081,10 +1102,10 @@ def RunScriptAfterNavAcquire(script_id):
 def StartNavAcquireAtEnd():
     pass
 
-def NavAcqAtEndUseParams(area):
+def NavAcqAtEndUseParams(kind, file=""):
     pass
 
-def SetNavAcqAtEndParams(key, value):
+def SetNavAcqAtEndParams(option, value, *more_options_and_values):
     pass
 
 def ReportIfNavAcquiring():
@@ -1093,7 +1114,7 @@ def ReportIfNavAcquiring():
 def ReportNumNavAcquire():
     return (_state.nav_acquire_count, 0)
 
-def ManageDewarsAndPumps(flag):
+def ManageDewarsAndPumps(checks=0):
     pass
 
 
@@ -1116,8 +1137,15 @@ def UserSetDirectory(prompt=""):
 # Version checking
 # ---------------------------------------------------------------------------
 
-def IsVersionAtLeast(version, date_string):
-    return 1
+def IsVersionAtLeast(version, date_string=""):
+    emulated = _COMMANDS[_version] if _COMMANDS else {"version_code": "40200", "build_date": "20250228"}
+    if int(version) != int(emulated["version_code"]):
+        return int(int(emulated["version_code"]) > int(version))
+    return int(not date_string or not emulated["build_date"] or emulated["build_date"] >= date_string)
+
+def ReturnAllValuesAsTuples(flag=1):
+    global _always_tuple
+    _always_tuple = bool(flag)
 
 
 # ---------------------------------------------------------------------------
@@ -1127,3 +1155,113 @@ def IsVersionAtLeast(version, date_string):
 def reset_mock_state():
     """Reset all mock state. Useful between test runs."""
     _state.reset()
+
+
+# ---------------------------------------------------------------------------
+# SerialEM version emulation
+# ---------------------------------------------------------------------------
+# The real module is generated from SerialEM's MacroMasterList.h, so it differs between versions. Each command
+# parses its arguments with PyArg_ParseTuple (keys I/D/S = int/number/string, lowercase = optional; wrong types
+# or counts raise TypeError), SerialEM then checks the minimum argument count (SEMerror), and reported values come
+# back as floats or strings: None for nothing, a single value, or a tuple. set_version() wraps every mocked command
+# accordingly and removes the commands the emulated version does not have (AttributeError, like the real module).
+# The command table is exported from the SerialEM sources by .claude/skills/serialem/scripts/export_mock_table.py.
+
+import json as _json
+import functools as _functools
+import os as _os
+
+try:
+    _COMMANDS = _json.loads(Path(__file__).with_name("sem_commands.json").read_text())["versions"]
+except OSError:     # table not shipped: commands are not checked
+    _COMMANDS = {}
+_ALL_COMMANDS = set().union(*(v["commands"] for v in _COMMANDS.values()))
+_RAW = {name: obj for name, obj in globals().items() if name in _ALL_COMMANDS and callable(obj)}
+_version = None
+_always_tuple = False
+
+
+def _check_args(name, keys, args):
+    """Raises TypeError like PyArg_ParseTuple with the command's argument keys."""
+
+    n_required = next((i for i, key in enumerate(keys) if key.islower()), len(keys))
+    if not n_required <= len(args) <= len(keys):
+        if n_required == len(keys):
+            expected = f"exactly {len(keys)}" if keys else "no"
+        else:
+            expected = f"from {n_required} to {len(keys)}"
+        raise TypeError(f"{name}() takes {expected} arguments ({len(args)} given)")
+
+    for i, (key, arg) in enumerate(zip(keys.upper(), args), start=1):
+        if key == "I":
+            # PyArg 'i' accepts anything with __index__ (int, bool, numpy ints), but no floats or strings
+            if isinstance(arg, float) or not hasattr(type(arg), "__index__"):
+                raise TypeError(f"{name}() argument {i} must be int, not {type(arg).__name__}")
+        elif key == "D":
+            if isinstance(arg, (str, bytes)) or not (hasattr(type(arg), "__float__") or hasattr(type(arg), "__index__")):
+                raise TypeError(f"{name}() argument {i} must be real number, not {type(arg).__name__}")
+        elif not isinstance(arg, str):
+            raise TypeError(f"{name}() argument {i} must be str, not {type(arg).__name__}")
+
+
+def _report(name, value):
+    """Converts a mock return value into what the real module returns for the reported values."""
+
+    if value is None:
+        return None
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    values = list(value) if isinstance(value, (tuple, list)) else [value]
+    if not values:
+        return None
+    try:
+        values = tuple(val if isinstance(val, str) else float(val) for val in values)
+    except (TypeError, ValueError):
+        raise TypeError(f"Mock {name}() returned {value!r}; SerialEM only reports numbers and strings") from None
+    if len(values) == 1 and (isinstance(values[0], str) or not _always_tuple):
+        return values[0]
+    return values
+
+
+def _emulate(name, func, min_args, keys):
+    @_functools.wraps(func)
+    def command(*args, **kwargs):
+        if kwargs:
+            raise TypeError(f"{name}() takes no keyword arguments")
+        _check_args(name, keys, args)
+        if len(args) < min_args:
+            raise SEMerror(f"{name} needs at least {min_args} arguments")
+        return _report(name, func(*args))
+    command.__wrapped_command__ = func
+    return command
+
+
+def set_version(version):
+    """Emulates the serialem module of the given SerialEM version ("4.2" or "4.3")."""
+
+    global _version
+    if not _COMMANDS:
+        return
+    if version not in _COMMANDS:
+        raise ValueError(f"Unknown SerialEM version {version!r}, choose from {sorted(_COMMANDS)}")
+    commands = _COMMANDS[version]["commands"]
+    module_globals = globals()
+    for name, func in _RAW.items():
+        if name in commands:
+            module_globals[name] = _emulate(name, func, *commands[name])
+        else:
+            module_globals.pop(name, None)
+    _version = version
+
+
+def get_version():
+    """Returns the emulated SerialEM version."""
+    return _version
+
+
+def versions():
+    """Returns all SerialEM versions the mock can emulate."""
+    return sorted(_COMMANDS)
+
+
+set_version(_os.environ.get("SPACETOMO_SEM_VERSION", "4.2"))

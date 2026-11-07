@@ -77,6 +77,9 @@ markers = [
     "slow: marks tests that take >1 minute (YOLO inference on CPU)",
 ]
 testpaths = ["tests"]
+# End-to-end runs write several GB of synthetic maps: keep temp dirs of failed tests from the last run only
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 
 [tool.setuptools.packages.find]
 include = ["SPACEtomo*"]
@@ -87,4 +90,4 @@ namespaces = false
 SPACEtomo = "SPACEtomo.ti:napari.yaml"
 
 [tool.setuptools.package-data]
-SPACEtomo = ["img/*.png", "ti/napari.yaml"]
+SPACEtomo = ["img/*.png", "ti/napari.yaml", "modules/dummy/*.json"]
