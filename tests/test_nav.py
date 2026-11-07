@@ -554,3 +554,14 @@ PtsY = 0.0
         nav2.selected_item = None
         nav2.readFromFile()
         assert nav2.items[0].note == "this is a multi word note"
+
+
+class TestPolygonCenter:
+    def test_closed_polygon_stage_is_center(self, nav):
+        """The closing point of a polygon must not bias its stage position."""
+
+        pts_x = [0.0, 0.0, 20.0, 20.0, 0.0]
+        pts_y = [0.0, 40.0, 40.0, 0.0, 0.0]
+        nav_id = nav.newPolygon(pts_x, pts_y, -5.0, label="PP99", update=False)
+
+        assert np.allclose(nav.items[nav_id].stage, [10.0, 20.0, -5.0])

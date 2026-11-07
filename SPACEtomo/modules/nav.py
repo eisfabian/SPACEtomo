@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
+# Last Change:  2026/11/07: polygon stage ignores closing point
+#               2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
 #               2024/12/23: Updated shiftItems function to not use sem
 #               2024/09/04: added newPolygon function
 #               2024/08/23: allowed creation of minimal map without template
@@ -320,7 +321,11 @@ class NavItem:
     def createPolygon(self, pts_x, pts_y, z, map_id, note=""):
         """Creates new point item."""
 
-        center = np.array([np.mean(pts_x), np.mean(pts_y), z])
+        # Center of the corners (closing point would bias the mean)
+        corners_x, corners_y = list(pts_x), list(pts_y)
+        if len(corners_x) > 1 and corners_x[0] == corners_x[-1] and corners_y[0] == corners_y[-1]:
+            corners_x, corners_y = corners_x[:-1], corners_y[:-1]
+        center = np.array([np.mean(corners_x), np.mean(corners_y), z])
 
         self.entries["Color"] = ["1"]
         self.entries["StageXYZ"] = [str(x) for x in center]
