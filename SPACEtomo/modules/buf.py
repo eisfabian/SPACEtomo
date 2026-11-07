@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
+# Last Change:  2026/11/07: fixed getCropImage padding when crop exceeds both map edges
+#               2026/02/22: added support for custom ROI names
 #               2025/03/04: added mdoc ingestion with file
 #               2025/01/17: fixed buffer from file
 #               2024/12/23: added alignTo function
@@ -539,28 +540,20 @@ class Buffer:
                     buf.buf_mod = None
 
     def getCropImage(self, coords, fov):
-        """Crops out virtual map at given coordinates and field of view."""
+        """Crops out virtual map at given coordinates (row, col) and field of view (rows, cols); pads with the mean outside the map."""
 
         if self.img is None:
             self.imgFromBuffer()
 
-        log(f"DEBUG:\nMap dimensions: {self.img.shape}\nCrop coords:\nx: {int(coords[0] - fov[0] / 2)}, {int(coords[0] + fov[0] / 2)}\ny: {int(coords[1] - fov[1] / 2)}, {int(coords[1] + fov[1] / 2)}")
+        start = np.array([int(coords[0] - fov[0] / 2), int(coords[1] - fov[1] / 2)])
+        end = start + np.array([int(fov[0]), int(fov[1])])
+        log(f"DEBUG:\nMap dimensions: {self.img.shape}\nCrop coords:\nx: {start[0]}, {end[0]}\ny: {start[1]}, {end[1]}")
 
-        imageCrop = self.img[max(0, int(coords[0] - fov[0] / 2)):min(self.img.shape[0], int(coords[0] + fov[0] / 2)), max(0, int(coords[1] - fov[1] / 2)):min(self.img.shape[1], int(coords[1] + fov[1] / 2))]
-        if not np.array_equal(imageCrop.shape, fov):
-            mean = np.mean(imageCrop)
-            if imageCrop.shape[0] < fov[0]:
-                padding = np.full((int(fov[0] - imageCrop.shape[0]), imageCrop.shape[1]), mean)
-                if int(coords[0] - fov[0] / 2) < 0:
-                    imageCrop = np.concatenate((padding, imageCrop), axis=0)
-                if int(coords[0] + fov[0] / 2) > self.img.shape[0]:
-                    imageCrop = np.concatenate((imageCrop, padding), axis=0)
-            if imageCrop.shape[1] < fov[1]:
-                padding = np.full((imageCrop.shape[0], int(fov[1] - imageCrop.shape[1])), mean)
-                if int(coords[1] - fov[1] / 2) < 0:
-                    imageCrop = np.concatenate((padding, imageCrop), axis=1)
-                if int(coords[1] + fov[1] / 2) > self.img.shape[1]:
-                    imageCrop = np.concatenate((imageCrop, padding), axis=1)		
+        imageCrop = self.img[max(0, start[0]):min(self.img.shape[0], end[0]), max(0, start[1]):min(self.img.shape[1], end[1])]
+        pad_before = np.maximum(0, -start)
+        pad_after = np.maximum(0, end - np.array(self.img.shape[:2]))
+        if np.any(pad_before) or np.any(pad_after):
+            imageCrop = np.pad(imageCrop, ((pad_before[0], pad_after[0]), (pad_before[1], pad_after[1])), constant_values=np.mean(imageCrop))
             log("WARNING: Target position is close to the edge of the map and was padded.")
         return imageCrop
     
