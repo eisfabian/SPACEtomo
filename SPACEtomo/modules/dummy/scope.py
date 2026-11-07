@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/09/02
 # Revision:     v1.3
-# Last Change:  2025/03/04: updated to make dummy run work again
+# Last Change:  2026/07/17: added mag_index property to mirror real Microscope
+#               2025/03/04: updated to make dummy run work again
 #               2024/09/02: separated from modules/scope.py
 # ===================================================================
 
@@ -116,6 +117,7 @@ class MicroscopeDummy:
         self.dummy_state["beam_tilt"] = np.zeros(2)
         self.dummy_state["micro_probe"] = 1
         self.dummy_state["magnification"] = 33000
+        self.dummy_state["mag_index"] = 25
         self.dummy_state["camera"] = [0, None] # camera_id and read_mode
         self.dummy_state["energy_filter"] = [20, 0, 1] # slit_width, energy_loss, slit_in
         self.dummy_state["exposure_time"] = 1.0
@@ -179,7 +181,11 @@ class MicroscopeDummy:
     @property
     def magnification(self):
         return self.dummy_state["magnification"]
-    
+
+    @property
+    def mag_index(self):
+        return self.dummy_state["mag_index"]
+
     @property
     def camera(self):
         camera_id, read_mode = self.dummy_state["camera"]

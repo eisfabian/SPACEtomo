@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
+# Last Change:  2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
+#               2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
 #               2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
 #               2026/02/22: made checkAutoloader work with both Thermo and JEOL
 #               2026/02/22: changed aperture commands to also work with JEOL
@@ -170,7 +171,15 @@ class Microscope:
     @property
     def magnification(self):
         return int(sem.ReportMag()[0]) # Returns low mag mode as second value, and TEM, EFTEM, STEM as third value
-    
+
+    @property
+    def mag_index(self):
+        """Mag index of the current Low Dose area. Requires SerialEM 4.3+ (GetLowDoseAreaParams); returns None otherwise."""
+        if not self.low_dose_area:
+            return None
+        ld_params = usem.getLowDoseParams(self.low_dose_area)
+        return ld_params["mag_index"] if ld_params is not None else None
+
     @property
     def camera(self):
         try:
@@ -846,6 +855,7 @@ class ImagingParams:
         self.view_ta_rotation = None
         self.view_rotM = None
         self.view_beam_diameter = None
+        self.view_mag_index = None              # Needed to stamp virtual View maps created from non-View montages
 
         # Rec properties
         self.rec_pix_size = None
@@ -854,6 +864,7 @@ class ImagingParams:
         self.rec_ta_rotation = None
         self.rec_rotM = None
         self.rec_beam_diameter = None
+        self.rec_mag_index = None
 
         # Focus properties
         self.focus_pix_size = None
@@ -862,7 +873,8 @@ class ImagingParams:
         self.focus_ta_rotation = None
         self.focus_rotM = None
         self.focus_beam_diameter = None
-        
+        self.focus_mag_index = None
+
         # Search properties
         self.search_pix_size = None
         self.search_c2ss_matrix = None
@@ -870,6 +882,7 @@ class ImagingParams:
         self.search_ta_rotation = None
         self.search_rotM = None
         self.search_beam_diameter = None
+        self.search_mag_index = None
 
         # Read and overwrite params with values from file
         if file_dir and (file_dir / self.file_name).exists():
@@ -881,7 +894,7 @@ class ImagingParams:
 
     def _fill_defaults(self):
         """Fill in missing focus params from rec and missing search params from view (backwards compatibility)."""
-        for attr in ["pix_size", "c2ss_matrix", "ss2is_matrix", "ta_rotation", "rotM", "beam_diameter"]:
+        for attr in ["pix_size", "c2ss_matrix", "ss2is_matrix", "ta_rotation", "rotM", "beam_diameter", "mag_index"]:
             if getattr(self, f"focus_{attr}") is None and getattr(self, f"rec_{attr}") is not None:
                 setattr(self, f"focus_{attr}", getattr(self, f"rec_{attr}"))
             if getattr(self, f"search_{attr}") is None and getattr(self, f"view_{attr}") is not None:
@@ -939,6 +952,7 @@ class ImagingParams:
             self.view_ta_rotation = 90 - np.degrees(np.arctan(self.view_c2ss_matrix[0, 1] / self.view_c2ss_matrix[0, 0]))
             self.view_rotM = np.array([[np.cos(np.radians(self.view_ta_rotation)), np.sin(np.radians(self.view_ta_rotation))], [-np.sin(np.radians(self.view_ta_rotation)), np.cos(np.radians(self.view_ta_rotation))]])
             self.view_beam_diameter = microscope.beam_size
+            self.view_mag_index = microscope.mag_index      # Needed to stamp virtual View maps created from non-View montages (SerialEM 4.3+)
         else:
             if not final_attempt:
                 log(f"WARNING: Cannot get View parameters in current Low Dose state {microscope.low_dose}, {microscope.low_dose_area}. Trying to switch to medium mag imaging state...")
@@ -966,6 +980,7 @@ class ImagingParams:
             self.rec_ta_rotation = 90 - np.degrees(np.arctan(self.rec_c2ss_matrix[0, 1] / self.rec_c2ss_matrix[0, 0]))
             self.rec_rotM = np.array([[np.cos(np.radians(self.rec_ta_rotation)), np.sin(np.radians(self.rec_ta_rotation))], [-np.sin(np.radians(self.rec_ta_rotation)), np.cos(np.radians(self.rec_ta_rotation))]])
             self.rec_beam_diameter = microscope.beam_size
+            self.rec_mag_index = microscope.mag_index
 
             if self.rec_beam_diameter < 0:
                 log(f"ERROR: Illuminated area/beam diameter is negative! Please check your imaging state setup!")
@@ -1003,6 +1018,7 @@ class ImagingParams:
                 self.focus_ta_rotation = 90 - np.degrees(np.arctan(self.focus_c2ss_matrix[0, 1] / self.focus_c2ss_matrix[0, 0]))
                 self.focus_rotM = np.array([[np.cos(np.radians(self.focus_ta_rotation)), np.sin(np.radians(self.focus_ta_rotation))], [-np.sin(np.radians(self.focus_ta_rotation)), np.cos(np.radians(self.focus_ta_rotation))]])
                 self.focus_beam_diameter = microscope.beam_size
+                self.focus_mag_index = microscope.mag_index
 
                 if self.focus_beam_diameter < 0:
                     log(f"ERROR: Illuminated area/beam diameter is negative! Please check your imaging state setup!")
@@ -1024,6 +1040,7 @@ class ImagingParams:
         self.focus_ta_rotation = self.rec_ta_rotation
         self.focus_rotM = self.rec_rotM
         self.focus_beam_diameter = self.rec_beam_diameter
+        self.focus_mag_index = self.rec_mag_index
 
     @dummy_skip
     @serialem_check
@@ -1047,6 +1064,7 @@ class ImagingParams:
                 self.search_ta_rotation = 90 - np.degrees(np.arctan(self.search_c2ss_matrix[0, 1] / self.search_c2ss_matrix[0, 0]))
                 self.search_rotM = np.array([[np.cos(np.radians(self.search_ta_rotation)), np.sin(np.radians(self.search_ta_rotation))], [-np.sin(np.radians(self.search_ta_rotation)), np.cos(np.radians(self.search_ta_rotation))]])
                 self.search_beam_diameter = microscope.beam_size
+                self.search_mag_index = microscope.mag_index
 
                 if self.search_beam_diameter < 0:
                     log(f"ERROR: Illuminated area/beam diameter is negative! Please check your imaging state setup!")
@@ -1068,6 +1086,7 @@ class ImagingParams:
         self.search_ta_rotation = self.view_ta_rotation
         self.search_rotM = self.view_rotM
         self.search_beam_diameter = self.view_beam_diameter
+        self.search_mag_index = self.view_mag_index
 
     def export(self, dir):
         params_file = Path(dir) / self.file_name
