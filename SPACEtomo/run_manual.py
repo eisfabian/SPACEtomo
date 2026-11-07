@@ -5,7 +5,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2026/07/10: warn if manual map pixel size matches neither View nor Search mode
+# Last Change:  2026/11/06: fixed external monitoring never being called while waiting for files
+#               2026/07/10: warn if manual map pixel size matches neither View nor Search mode
 #               2025/03/21: fixed map naming
 #               2025/02/17: added handling of multiple maps
 #               2025/01/09: created
@@ -205,7 +206,7 @@ def main():
         nav.pull()
         utils.waitForFile(MAP_DIR / (map_name + "_points*.json"), 
                         "Waiting for first lamella to be processed before setting up targets...", 
-                        function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else lambda: utils.monitorExternal(MAP_DIR)
+                        function_call=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else (lambda: utils.monitorExternal(MAP_DIR))
                         )
         # Make sure targets were inspected
         if settings["MM_wait_for_inspection"]:
@@ -215,7 +216,7 @@ def main():
             # Wait for inspection
             utils.waitForFile(MAP_DIR / (map_name + "_inspected.txt"), 
                             "Waiting for targets to be inspected by operator...", 
-                            function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else lambda: utils.monitorExternal(MAP_DIR)
+                            function_call=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else (lambda: utils.monitorExternal(MAP_DIR))
                             )
 
         log(f"\nSetting up targets for {map_name}...")

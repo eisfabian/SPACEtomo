@@ -27,7 +27,7 @@ setup(
     keywords=["SPACEtomo", "cryoET", "tomography", "electron-tomography", "SerialEM"],
     maintainer="Fabian Eisenstein",
     maintainer_email="spacetomo.help@gmail.com",
-    packages=find_packages(), # Automatically find packages
+    packages=find_packages(include=["SPACEtomo*"], exclude=["SPACEtomo.models*", "tests*"]), # Automatically find packages
     package_data={"SPACEtomo": ["img/*.png"]},
     install_requires=[
         "matplotlib>=3.5; python_version>='3.9'",
@@ -51,8 +51,8 @@ setup(
             "dearpygui>=1.10.0; python_version>='3.9'",
             ],
         "predict": [
-            "torch>=2.2.0; python_version>='3.9'", 
-            "torchvision>=0.17.0; python_version>='3.9'", 
+            "torch>=2.2.0,<2.9.0; python_version>='3.9'", 
+            "torchvision>=0.17.0,<0.24.0; python_version>='3.9'", 
             "nnunetv2>=2.2.1; python_version>='3.9'", 
             "ultralytics>=8.1.12; python_version>='3.9'",
             "ultralytics>=8.1.12,<8.3.10; python_version=='3.9'",

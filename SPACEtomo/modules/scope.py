@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
+# Last Change:  2026/11/06: aperture commands try integer id first and fall back to letter
+#               2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
 #               2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
 #               2026/02/22: fixed loadGrid indexing for JEOL, added unloadGrid, fixed openValves
 #               2026/02/22: made checkAutoloader work with both Thermo and JEOL
@@ -115,17 +116,20 @@ class Microscope:
             self.checkAutoloader()
         return self.autoloader_type == 'jeol'
 
-    def _aperture_id(self, name):
-        """Returns aperture identifier as string for JEOL, integer for Thermo/FEI."""
-        if self.is_jeol:
-            return name  # 'C' or 'O'
-        return {'C': 1, 'O': 2, 'S': 4}[name]
+    @staticmethod
+    def _apertureCommand(command, name, *args):
+        """Calls aperture command with integer aperture id, falls back to letter if SerialEM rejects the integer."""
+        try:
+            return command({'C': 1, 'O': 2, 'S': 4}[name], *args)
+        except TypeError:
+            # Python module arg types can differ between SerialEM versions
+            return command(name, *args)
 
     @property
     def condenser_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize(self._aperture_id('C')))
+            return int(self._apertureCommand(sem.ReportApertureSize, 'C'))
         except sem.SEMerror:
             log(f"WARNING: Could not access C2 aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -136,7 +140,7 @@ class Microscope:
     def objective_aperture(self):
         try:
             sem.StartTry(1)
-            return int(sem.ReportApertureSize(self._aperture_id('O')))
+            return int(self._apertureCommand(sem.ReportApertureSize, 'O'))
         except sem.SEMerror:
             log(f"WARNING: Could not access objective aperture. Please check if SerialEM has aperture control!")
             return 0
@@ -512,7 +516,7 @@ class Microscope:
         
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(self._aperture_id('C'), size)
+            self._apertureCommand(sem.SetApertureSize, 'C', size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert C2 aperture. Please check if SerialEM has aperture control!")
         finally:
@@ -523,7 +527,7 @@ class Microscope:
 
         try:
             sem.StartTry(1)
-            sem.SetApertureSize(self._aperture_id('O'), size)
+            self._apertureCommand(sem.SetApertureSize, 'O', size)
         except sem.SEMerror:
             log(f"WARNING: Could not insert objective aperture. Please check if SerialEM has aperture control!")
         finally:

@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/10
 # Revision:     v1.4
-# Last Change:  2026/11/06: fixed IM map losing PP label with custom ROI names
+# Last Change:  2026/11/06: fixed shifting all nav items when aligning the last ROI
+#               2026/11/06: fixed IM map losing PP label with custom ROI names
 #               2026/02/22: added support for custom ROI names
 #               2025/02/21: refactored to always have iterative IM reference alignment
 #               2025/01/10: outsourcing from run.py
@@ -266,9 +267,10 @@ class IMAlignment:
                 im_buffer, stage_shift = self.alignToRef(ref_buffer=Buffer(buffer="O", file_path=ref_file))
                 self.offsets[p] += stage_shift
 
-                # Shift remaining PP nav items by alignment shift
-                if not self.shifted:
-                    self.nav.shiftItems(stage_shift, item_ids=self.position_ids[p + 1:])
+                # Shift remaining PP nav items by alignment shift (skip if none remain, empty item_ids would shift all items)
+                remaining_ids = self.position_ids[p + 1:]
+                if not self.shifted and remaining_ids:
+                    self.nav.shiftItems(stage_shift, item_ids=remaining_ids)
                     self.shifted = True
 
                     # Save shifts

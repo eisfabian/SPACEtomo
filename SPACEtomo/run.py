@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
+# Last Change:  2026/11/06: fixed external monitoring never being called while waiting for files
+#               2026/02/22: added support for custom ROI names
 #               2025/02/06: outsourced MM map acquisition to mma.py
 #               2025/01/10: outsourced IM align to ima.py
 #               2024/12/23: added alignTo IM image during grid realign
@@ -370,7 +371,7 @@ def main():
             map_file = Path(nav.items[MM_map_ids[0]].note)
             utils.waitForFile(MAP_DIR / (map_file.stem + "_points*.json"), 
                             "Waiting for first MM map to be processed before setting up targets...", 
-                            function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else lambda: utils.monitorExternal(MAP_DIR)
+                            function_call=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else (lambda: utils.monitorExternal(MAP_DIR))
                             )
             # Make sure targets were inspected
             if settings["MM_wait_for_inspection"]:
@@ -380,7 +381,7 @@ def main():
                 # Wait for inspection
                 utils.waitForFile(MAP_DIR / (map_file.stem + "_inspected.txt"), 
                                 "Waiting for targets to be inspected by operator...", 
-                                function_call=lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params) if not EXTERNAL_RUN else lambda: utils.monitorExternal(MAP_DIR)
+                                function_call=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else (lambda: utils.monitorExternal(MAP_DIR))
                                 )
 
             # Loop over all MM maps
