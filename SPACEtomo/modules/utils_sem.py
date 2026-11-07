@@ -124,7 +124,7 @@ def getLowDoseParams(area: str):
         sem.GetLowDoseAreaParams(area, "ld_params")
         ld_params = sem.GetVariable("ld_params")
     except sem.SEMerror:
-        log(f"ERROR: Could not retrieve low dose parameters without switching to them! Consider updating SerialEM to the latest version to speed this up!")
+        log(f"WARNING: Could not retrieve Low Dose parameters for area '{area}'. GetLowDoseAreaParams requires SerialEM 4.3+.")
         return None
 
     # LowDoseParameters:
