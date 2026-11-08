@@ -33,14 +33,7 @@ from pathlib import Path
 
 from SPACEtomo.modules.utils import log
 
-# Attempt SerialEM import
 import SPACEtomo.config as config
-sys.path.insert(len(sys.path), config.SERIALEM_PYTHON_PATH)
-try:
-    import serialem as sem
-    SERIALEM = True
-except ModuleNotFoundError:
-    SERIALEM = False
 
 def show(gui, path="", **kwargs):
     dpg.create_context()
@@ -75,10 +68,13 @@ def main():
         from SPACEtomo.modules.gui.set import SettingsGUI
         gui = SettingsGUI
     elif args.task.lower() == "run":
-        if SERIALEM:
+        # SerialEM is only imported for this task (the dummy task must not load the real module)
+        sys.path.insert(len(sys.path), config.SERIALEM_PYTHON_PATH)
+        try:
+            import serialem
             from SPACEtomo import run
             process = run.main
-        else:
+        except ModuleNotFoundError:
             log(f"ERROR: SPACEtomo {args.task} requires SerialEM!")
     elif args.task.lower() == "scripts":
         serialem_script_dir = Path(__file__).parent / "SerialEM_scripts"
@@ -93,7 +89,8 @@ def main():
         # Standalone run on a synthetic grid with the simulated microscope (no SerialEM needed)
         from SPACEtomo.modules.dummy import session
         session_dir = Path(args.map_file) if args.map_file else Path.cwd() / "SPACEtomo_dummy"
-        level, seed = (list(args.args) + [4, 0])[:2]
+        level = args.args[0] if len(args.args) > 0 else 4
+        seed = args.args[1] if len(args.args) > 1 else 0
         session.run(session_dir, automation_level=int(level), seed=int(seed))
     elif args.task.lower() == "sort":
         from SPACEtomo import run_sort

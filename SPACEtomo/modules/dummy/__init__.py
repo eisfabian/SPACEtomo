@@ -15,11 +15,16 @@ def install_mock_serialem():
     """Install the mock serialem module into sys.modules.
 
     After calling this, any `import serialem as sem` will get the mock.
-    Safe to call multiple times (idempotent).
+    Safe to call multiple times (idempotent). Raises RuntimeError if the real serialem module is already loaded:
+    DUMMY mode must never drive a microscope (modules imported earlier would keep using the real module).
     """
-    if "serialem" not in sys.modules:
-        from SPACEtomo.modules.dummy import serialem as _mock_sem
+    from SPACEtomo.modules.dummy import serialem as _mock_sem
+    current = sys.modules.get("serialem")
+    if current is None:
         sys.modules["serialem"] = _mock_sem
+    elif current is not _mock_sem:
+        raise RuntimeError("The real SerialEM module is loaded, but DUMMY mode runs SPACEtomo on a simulated microscope only. "
+                           "Set DUMMY = False (SPACEconfig dummy) to run on the microscope, or use 'SPACEtomo dummy' outside SerialEM.")
 
 
 def uninstall_mock_serialem():

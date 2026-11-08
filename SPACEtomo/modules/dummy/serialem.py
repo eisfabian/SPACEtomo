@@ -602,8 +602,9 @@ def bufferImage(buffer_letter):
     return _buffer(buffer_letter).img
 
 def ImageProperties(buffer="A"):
-    """Returns: sizeX, sizeY, binning, exposure, pixelSize (nm), mode."""
+    """Returns: sizeX, sizeY, binning, exposure, pixelSize (nm), mode; sets imageTickTime to the buffer's time stamp."""
     image = _buffer(buffer)
+    _state.script_vars["imageTickTime"] = image.tick
     return (image.img.shape[1], image.img.shape[0], image.binning, 1.0, image.pix_size, 1)
 
 def ImageConditions(buffer="A"):
@@ -805,8 +806,11 @@ def RealignReloadedGrid(map_id, *args):
 # ---------------------------------------------------------------------------
 
 def OpenNewFile(path):
+    """Opens a new image file; an existing file stops the script unless AllowFileOverwrite was set (as in SerialEM)."""
     file = _sim.path(path)
-    if file.exists() and not _state.file_overwrite_allowed:
+    if file.exists():
+        if not _state.file_overwrite_allowed:
+            raise SEMerror(f"Error opening new file because {file} already exists")
         file.unlink()
     _sim.files.append(file)
     _sim.current_file = file
@@ -870,12 +874,14 @@ def SetFrameBaseName(*args):
 def SetupFullMontage(overlap, filename):
     """Sets up a montage of the whole grid at the current mag and opens the montage file."""
     _sim.montage = {"kind": "full", "file": _sim.path(filename), "overlap": float(overlap)}
+    OpenNewFile(str(_sim.montage["file"]))
 
 def SetupPolygonMontage(nav_id, flag, filename):
     """Sets up a montage of the polygon item nav_id (1-based) and opens the montage file."""
     if _item(nav_id).item_type != 1:
         raise SEMerror(f"Navigator item {nav_id} is not a polygon")
     _sim.montage = {"kind": "polygon", "poly_index": int(nav_id), "file": _sim.path(filename), "view": _state.montage_param_set == 2}
+    OpenNewFile(str(_sim.montage["file"]))
 
 def OpenNewMontage(sizeX, sizeY, filename):
     OpenNewFile(filename)
@@ -1060,8 +1066,8 @@ def _acquire(area):
     _state.script_vars["imageTickTime"] = _sim.buffers["A"].tick
 
 def L():
-    """Search (Low Dose S area)."""
-    _acquire("S")
+    """Preview (Low Dose Record area)."""
+    _acquire("R")
 
 def _buffer(letter):
     try:

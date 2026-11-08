@@ -35,7 +35,11 @@ def main():
     # Ground truth is written next to the map files (grid folder containing SPACE_maps)
     truth_file = map_png.parent.parent / "dummy_ground_truth.json"
     truth = json.loads(truth_file.read_text())
-    mm_map = next(entry for entry in truth["maps"] if entry["name"] == map_name)
+    entries = [entry for entry in truth["maps"] if entry["name"] == map_name]
+    if not entries:
+        print(f"ERROR: No ground truth for map {map_name} in {truth_file} (only polygon montages of the simulated microscope can be segmented).")
+        sys.exit(1)
+    mm_map = entries[-1]        # latest acquisition (maps can be reacquired)
 
     # Render at map pixel size and scale to the png size (model pixel size)
     shape = np.round(np.flip(mm_map["extent"]) * 1000 / mm_map["pix_size"]).astype(int)

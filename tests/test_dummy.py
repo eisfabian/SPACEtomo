@@ -112,3 +112,39 @@ def test_navigator_is_owned_by_the_mock(tmp_path):
 
 def test_stage_to_pixel_matrix_flips_y():
     assert np.allclose(stageToPixelMatrix(1000.0), [[1, 0], [0, -1]])
+
+
+def test_dummy_refuses_real_serialem(monkeypatch):
+    """DUMMY mode must never drive a microscope: installing the mock fails if the real module is loaded."""
+
+    import sys
+    from types import ModuleType
+    from SPACEtomo.modules.dummy import install_mock_serialem
+    monkeypatch.setitem(sys.modules, "serialem", ModuleType("serialem"))
+
+    with pytest.raises(RuntimeError, match="real SerialEM module"):
+        install_mock_serialem()
+
+
+def test_open_new_file_does_not_overwrite(tmp_path):
+    existing = tmp_path / "map.mrc"
+    existing.write_bytes(b"data")
+
+    with pytest.raises(sem.SEMerror, match="already exists"):
+        sem.OpenNewFile(str(existing))
+    assert existing.read_bytes() == b"data"
+
+    sem.AllowFileOverwrite(1)
+    sem.OpenNewFile(str(existing))
+    assert not existing.exists()        # replaced when the new file is written
+
+
+def test_image_properties_sets_buffer_tick_time():
+    _record_at((0.0, 0.0))
+    _record_at((50.0, 0.0))
+
+    sem.ImageProperties("B")
+    tick_b = sem.GetVariable("imageTickTime")
+    sem.ImageProperties("A")
+
+    assert tick_b < sem.GetVariable("imageTickTime")
