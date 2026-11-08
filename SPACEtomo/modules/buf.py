@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/11/07: fixed getCropImage padding when crop exceeds both map edges
+# Last Change:  2026/11/08: rescaleImage keeps intensities (counts wrapped around), saved pngs are always 8 bit
+#               2026/11/07: fixed getCropImage padding when crop exceeds both map edges
 #               2026/02/22: added support for custom ROI names
 #               2025/03/04: added mdoc ingestion with file
 #               2025/01/17: fixed buffer from file
@@ -329,9 +330,9 @@ class Buffer:
 
         # Internal function that performs the actual save operation
         def save_operation(img):
-            # Check intensity range and rescale if not between 0 and 255
+            # Check intensity range and rescale if not 8 bit between 0 and 255
             log(f"DEBUG: Image min/max: {np.min(img)}/{np.max(img)}")
-            if np.min(img) < 0 or not 200 < np.max(img) <= 255:
+            if img.dtype != np.uint8 or np.min(img) < 0 or not 200 < np.max(img) <= 255:
                 log(f"DEBUG: Rescaling image intensity to out_range=(0, 255)") 
                 img = exposure.rescale_intensity(img, out_range=(0, 255)).astype(np.uint8)
 
@@ -390,7 +391,7 @@ class Buffer:
             return False
 
         if self.img is not None:
-            self.img_mod = (transform.rescale(self.img, 1 / factor) * 255).astype(np.uint8)
+            self.img_mod = transform.rescale(self.img.astype(np.float32), 1 / factor, preserve_range=True)     # keep counts, 8 bit conversion when saving
         else:
             raise ValueError("Image has not been converted from buffer yet!")
         return True
