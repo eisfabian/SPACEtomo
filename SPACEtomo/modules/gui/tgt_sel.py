@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2026/06/16: matched click area to LD FOV, prefer closer geo point, fixed drag release snapping
+# Last Change:  2026/11/08: wait for background loading before closing (segfault on close)
+#               2026/06/16: matched click area to LD FOV, prefer closer geo point, fixed drag release snapping
 #               2025/08/25: added LD area selection in tgt menu, removed any target overlay texture code
 #               2025/08/24: replaced target overlay generation with new implementation using drawlist
 #               2025/05/31: outsourced makeTargetOverlay to gui.py, added support for targets using different LD areas
@@ -2314,3 +2315,6 @@ class TargetGUI:
             gui.flush_deferred()
 
             dpg.render_dearpygui_frame()
+
+        # Let background loading (map preload, thumbnails) finish before the caller destroys the DPG context (segfault on close)
+        self.executor.shutdown(wait=True, cancel_futures=True)

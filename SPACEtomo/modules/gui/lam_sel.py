@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
 # Revision:     v1.4
-# Last Change:  2026/02/02: added renaming of ROIs
+# Last Change:  2026/11/08: pixel size input accepts decimals
+#               2026/02/02: added renaming of ROIs
 #               2025/04/12: added InfoBoxManager to stack popups, fixed tooltips of hidden buttons showing up
 #               2025/03/13: renamed lamella to ROI
 #               2025/03/06: added grid boxes, added class legend
@@ -1348,7 +1349,7 @@ class GridGUI:
                         self.menu.addButton(tag="btn_detect", label="Detect lamellae", callback=self.callLamellaDetection, tooltip="Use SPACEtomo detection model to find lamellae.")
 
                         self.menu.newRow(tag="rescale", horizontal=True, advanced=True)
-                        self.menu.addInput("inp_pixsize", label="[nm/px]", value=100)
+                        self.menu.addInput("inp_pixsize", label="[nm/px]", value=100.0)     # float input (pixel sizes are not integers)
                         self.menu.addButton(tag="btn_rescale", label="Rescale", callback=self.rescaleMap)
 
                         self.menu.newRow(tag="inspect")
