@@ -27,6 +27,9 @@ import time
 import numpy as np
 from pathlib import Path
 
+from SPACEtomo.modules.dummy import sim as _sim_module
+from SPACEtomo.modules.dummy.sim import sim as _sim
+
 # ---------------------------------------------------------------------------
 # Custom exceptions matching real serialem module
 # ---------------------------------------------------------------------------
@@ -55,8 +58,7 @@ class _State:
         self.reset()
 
     def reset(self):
-        # Stage
-        self.stage_xyz = [0.0, 0.0, 0.0]
+        # Stage tilt
         self.tilt_angle = 0.0
         self.stage_busy = False
 
@@ -75,20 +77,9 @@ class _State:
         self.spot_size = 6
         self.percent_c2 = 50.0
         self.fractional_c2 = 0.12
-        self.illuminated_area = 2.0
         self.probe_mode = 1  # 1 = nanoprobe, 0 = microprobe
 
-        # Magnification
-        self.mag = 33000
-        self.mag_index = 25
-        self.low_mag_mode = 0  # 0 = regular mag
-
-        # Camera
-        self.camera_id = 0
-        self.camera_dims = [5760, 4092]
-        self.camera_pix_size = 0.3735  # nm/px at default mag
-        self.camera_rotation = 0.0
-        self.detector_pix_size = 5.0  # physical detector pixel in nm
+        # Camera (dims, pixel sizes, mags, Low Dose, imaging states, buffers, files and navigator: see sim.py)
         self.read_modes = {"V": 1, "F": 1, "T": 1, "R": 1, "P": 0, "S": 1, "M": 0}
         self.binnings = {"V": 1, "F": 1, "T": 1, "R": 1, "P": 1, "S": 1, "M": 1}
         self.exposures = {"V": 1.0, "F": 0.5, "T": 0.5, "R": 1.0, "P": 0.1, "S": 0.5, "M": 1.0}
@@ -105,31 +96,12 @@ class _State:
         self.o_aperture = 100
 
         # Low Dose
-        self.low_dose_mode = 0
-        self.low_dose_area = "R"
         self.ld_defocus_offsets = {"V": 0.0, "F": 0.0, "T": 0.0, "R": 0.0, "S": 0.0}
 
-        # Imaging states — registry of named states
-        # Each entry: {name: (index, low_dose, camera, mag_index)}
-        # low_dose: -1 = not low dose, 0+ = low dose area index
-        self.imaging_states = {
-            "WG": (1, -1, 0, 10),    # Whole grid: not low dose
-            "IM": (2, -1, 0, 20),    # Intermediate mag: not low dose
-            "MM1": (3, 0, 0, 25),    # Medium mag: low dose (type 0 = View area)
-        }
-        self.current_imaging_state = 1
-
-        # Navigator
-        self.nav_open = True
-        self.nav_file = "temp.nav"
-        self.nav_items = []  # list of dicts
-        self.current_nav_index = 0  # 1-based, 0 = no current item
+        # Navigator acquisition, files and montages
         self.nav_acquire_count = 0
-
-        # Files
-        self.open_files = []  # list of file path strings
-        self.current_file_index = 0
         self.file_overwrite_allowed = False
+        self.montage_param_set = 1
 
         # Persistent variables
         self.persistent_vars = {}
@@ -154,14 +126,8 @@ class _State:
         # Try/Catch stack
         self._try_depth = 0
 
-        # Navigator save callback
-        self._save_nav_callback = None
-
-        # Buffer images (letter -> numpy array)
-        self.buffers = {}
-
-        # Last alignment shift
-        self.align_shift = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # Simulated microscope (optics, buffers, files, montages, navigator)
+        _sim.reset()
 
         # Autofocus results
         self.last_autofocus = -3.0
@@ -269,18 +235,15 @@ def ReportProperty(name):
 # ---------------------------------------------------------------------------
 
 def ReportStageXYZ():
-    return tuple(_state.stage_xyz)
+    return tuple(_sim.stage)
 
 def MoveStageTo(x, y, z=None):
-    _state.stage_xyz[0] = float(x)
-    _state.stage_xyz[1] = float(y)
+    _sim.stage[:2] = [float(x), float(y)]
     if z is not None:
-        _state.stage_xyz[2] = float(z)
+        _sim.stage[2] = float(z)
 
 def MoveStage(dx, dy, dz=0):
-    _state.stage_xyz[0] += float(dx)
-    _state.stage_xyz[1] += float(dy)
-    _state.stage_xyz[2] += float(dz)
+    _sim.stage += [float(dx), float(dy), float(dz)]
 
 def ReportTiltAngle():
     return _state.tilt_angle
@@ -389,7 +352,8 @@ def SetPercentC2(value):
     _state.percent_c2 = float(value)
 
 def ReportIlluminatedArea():
-    return _state.illuminated_area
+    """Illuminated area in units of 100 µm (SPACEtomo multiplies by 100)."""
+    return _sim.illuminatedArea() / 100
 
 def ReportProbeMode():
     return _state.probe_mode
@@ -406,17 +370,15 @@ def SetColumnOrGunValve(state):
 # ---------------------------------------------------------------------------
 
 def ReportMag():
-    return (_state.mag, _state.low_mag_mode, 0)
+    """Returns (magnification, low mag flag, EFTEM/STEM flag)."""
+    return (_sim_module.magnification(_sim.mag_index), int(_sim.mag_index < 16), 0)
 
 def SetMag(mag, stem_direct=0):
-    _state.mag = int(mag)
-    _state.camera_pix_size = 12323.0 / _state.mag
+    _sim.mag_index = min(_sim_module.MAGS, key=lambda index: abs(_sim_module.magnification(index) - mag))
 
 def SetMagIndex(index):
-    _state.mag_index = int(index)
-    # Approximate mag from index
-    _state.mag = int(100 * (1.2 ** index))
-    _state.camera_pix_size = 12323.0 / _state.mag
+    if index in _sim_module.MAGS:
+        _sim.mag_index = int(index)
 
 
 # ---------------------------------------------------------------------------
@@ -427,9 +389,9 @@ def SelectCamera(camera_id):
     _state.camera_id = int(camera_id)
 
 def CameraProperties(camera=None, mag_index=None):
-    """Returns: sizeX, sizeY, rotation, numCameras, pixelSize, cameraNumber."""
-    return (_state.camera_dims[0], _state.camera_dims[1],
-            _state.camera_rotation, 1, _state.camera_pix_size, _state.camera_id)
+    """Returns: sizeX, sizeY, rotation/flip, detector pixel (µm), pixel size on specimen (nm), camera number."""
+    pix_size = _sim_module.MAGS[mag_index] if mag_index in _sim_module.MAGS else _sim.pix_size
+    return (*_sim_module.CAMERA_DIMS, 0, _sim_module.DETECTOR_PIX_SIZE, pix_size, camera or 1)
 
 def ReportReadMode(area="R"):
     return _state.read_modes.get(area, 0)
@@ -452,8 +414,8 @@ def SetExposure(area, exp_time, drift_settling=None):
         _state.drift_settling[area] = float(drift_settling)
 
 def ReportCurrentPixelSize(area="R"):
-    """Returns pixel size in nm for given area (before binning)."""
-    return _state.camera_pix_size
+    """Pixel size in nm of the Low Dose area (or current mag), including binning."""
+    return _sim_module.MAGS[_sim.areaMagIndex(area)] * _state.binnings.get(area, 1)
 
 def SetFrameBaseName(index, suffix_flag, digits, name):
     pass
@@ -505,40 +467,24 @@ def SetApertureSize(aperture, size):
 
 def ReportLowDose():
     """Returns (on/off, area index 0-4 for V F T R S or -1 if undefined), never letters."""
-    area = "VFTRS".index(_state.low_dose_area) if _state.low_dose_area in ("V", "F", "T", "R", "S") else -1
-    return (_state.low_dose_mode, area)
+    area = "VFTRS".index(_sim.ld_area) if _sim.low_dose and _sim.ld_area in ("V", "F", "T", "R", "S") else -1
+    return (int(_sim.low_dose), area)
 
 def SetLowDoseMode(mode):
-    _state.low_dose_mode = int(mode)
+    _sim.low_dose = bool(mode)
     if not mode:
-        _state.low_dose_area = None
+        _sim.ld_area = None
 
 def GoToLowDoseArea(area):
-    _state.low_dose_area = str(area)
+    if not _sim.low_dose:
+        raise SEMerror("Low Dose is not on")
+    _sim.goToArea(str(area))
 
 def GetLowDoseAreaParams(area, var_name):
-    """Stores low dose params into a script variable."""
-    ld_areas = {"V": 0, "F": 1, "T": 2, "R": 3, "S": 4}
-    params = [
-        ld_areas.get(area, 0),  # area number
-        _state.mag_index,       # mag index
-        _state.spot_size,       # spot size
-        _state.percent_c2 / 100.0,  # intensity
-        0.0,                    # axis offset
-        0,                      # mode (0=TEM)
-        _state.slit_in,         # filter slit in
-        _state.slit_width,      # slit width
-        _state.energy_loss,     # energy loss
-        0,                      # zero loss flag
-        0.0, 0.0,              # beam X/Y offset
-        -999.0,                # alpha (JEOL)
-        -999.0,                # diffraction focus
-        _state.beam_tilt[0], _state.beam_tilt[1],  # beam tilt
-        _state.probe_mode,     # probe mode
-        0,                     # dark field mode
-        0.0, 0.0,             # dark field tilt
-        100.0,                 # dose modulation
-    ]
+    """Stores low dose params of the area as one text line (like WriteLowDoseToString)."""
+    params = ["VFTRS".index(area), _sim_module.LD_AREAS[area][0], _state.spot_size, _state.percent_c2 / 100.0, 0.0, 0,
+              _state.slit_in, _state.slit_width, _state.energy_loss, 0, 0.0, 0.0, -999.0, -999.0,
+              _state.beam_tilt[0], _state.beam_tilt[1], _state.probe_mode, 0, 0.0, 0.0, 100.0]
     _state.script_vars[var_name] = ("%d %d %d %f %f %d %d %f %f %d %f %f %f %f %f %f %d %d %f %f %f" % tuple(params))
 
 
@@ -547,88 +493,57 @@ def GetLowDoseAreaParams(area, var_name):
 # ---------------------------------------------------------------------------
 
 def GoToImagingState(state_name_or_number):
-    name = str(state_name_or_number)
-    if name in _state.imaging_states:
-        index, low_dose, camera, mag_index = _state.imaging_states[name]
-    elif name.isdigit():
-        index = int(name)
-        # Find by index
-        for sname, props in _state.imaging_states.items():
-            if props[0] == index:
-                _, low_dose, camera, mag_index = props
-                break
-        else:
-            low_dose, camera, mag_index = -1, 0, 10
-    else:
-        return 1  # error: not found
-
-    _state.current_imaging_state = index
-    if low_dose >= 0:       # state type 0-5: Low Dose V, F, T, R, S, or R with Mont-Map parameters
-        _state.low_dose_mode = 1
-        _state.low_dose_area = "VFTRSR"[low_dose]
-    else:
-        _state.low_dose_mode = 0
-        _state.low_dose_area = None
-    return 0
+    return _sim.goToImagingState(state_name_or_number)
 
 def ImagingStateProperties(state_name_or_number):
-    """Returns: error, index, lowDose, camera, magIndex, name."""
+    """Returns: error, number, type, camera, magIndex, name."""
     name = str(state_name_or_number)
-    # Look up by name
-    if name in _state.imaging_states:
-        index, low_dose, camera, mag_index = _state.imaging_states[name]
-        return (0, index, low_dose, camera, mag_index, name)
-    # Look up by index
-    if name.isdigit():
-        idx = int(name)
-        for sname, props in _state.imaging_states.items():
-            if props[0] == idx:
-                return (0, idx, props[1], props[2], props[3], sname)
-        # Also support numeric states beyond the registry (for getImagingStates enumeration)
-        if idx > len(_state.imaging_states):
-            return 1  # not found
-        return (0, idx, -1, 0, 10, f"State{idx}")
-    return 1  # not found
+    for state_name, (number, state_type, camera, mag_index) in _sim_module.IMAGING_STATES.items():
+        if name in (state_name, str(number)):
+            if state_type >= 0:
+                mag_index = _sim_module.LD_AREAS["VFTRSR"[state_type]][0]
+            return (0, number, state_type, camera, mag_index, state_name)
+    return 3 if name.isdigit() else 1
 
 
 # ---------------------------------------------------------------------------
 # Image acquisition
 # ---------------------------------------------------------------------------
 
-def _generate_dummy_image():
-    """Generate a random noise image matching camera dims."""
-    img = np.random.rand(_state.camera_dims[1], _state.camera_dims[0]).astype(np.float32) * 200 + 28
-    _state.buffers["A"] = img
-    _state.script_vars["imageTickTime"] = time.time()
-    return img
 
 def R():
     """Record."""
-    return _generate_dummy_image()
+    _acquire("R")
 
 def V():
     """View."""
-    return _generate_dummy_image()
+    _acquire("V")
 
 def F():
     """Focus."""
-    return _generate_dummy_image()
+    _acquire("F")
 
 def T():
     """Trial."""
-    return _generate_dummy_image()
+    _acquire("T")
 
 def S(buffer="A", file_number=0):
-    """Save current buffer to file."""
-    pass
+    """Saves buffer to the current (or given) open file."""
+    file = _sim.files[file_number - 1] if file_number else _sim.current_file
+    if file is None:
+        raise SEMerror("There is no open image file to save to")
+    _sim.saveToFile(buffer, file)
 
 def M(prescan=None):
-    """Montage."""
-    return _generate_dummy_image()
+    """Acquires the montage that was set up."""
+    if not _sim.montage:
+        raise SEMerror("No montage was set up")
+    _sim.collectMontage()
+    _state.script_vars["imageTickTime"] = _sim.buffers["A"].tick
 
 def Search():
     """Search."""
-    return _generate_dummy_image()
+    _acquire("S")
 
 def G(action=1, trial=-1):
     """Autofocus."""
@@ -644,18 +559,18 @@ def Eucentricity(mode=2, use_view=0):
     pass
 
 def AlignTo(buffer, avoid_is=0, *args):
-    _state.align_shift = [np.random.uniform(-2, 2), np.random.uniform(-2, 2), 0, 0,
-                          np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)]
+    _sim.align(buffer)
 
 def AlignBetweenMags(buffer, *args):
-    _state.align_shift = [np.random.uniform(-5, 5), np.random.uniform(-5, 5), 0, 0,
-                          np.random.uniform(-0.2, 0.2), np.random.uniform(-0.2, 0.2)]
+    """Aligns A to the reference; afterwards the image is in A again (buffers rolled, as assumed by Buffer.alignTo)."""
+    _sim.align(buffer)
+    _sim.putInBuffer("A", _sim.buffers["A"].copy())
 
 def ReportAlignShift():
-    return tuple(_state.align_shift)
+    return tuple(_sim.align_shift)
 
 def ClearAlignment(flag=0):
-    _state.align_shift = [0, 0, 0, 0, 0, 0]
+    _sim.align_shift = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -666,46 +581,45 @@ def Show(buffer_letter):
     pass
 
 def Copy(src, dst):
-    if src in _state.buffers:
-        _state.buffers[dst] = _state.buffers[src].copy()
+    _sim.putInBuffer(dst, _buffer(src).copy())
 
 def LoadOtherMap(nav_id, buffer="A"):
-    """Load map into buffer. In mock, generates noise."""
-    _generate_dummy_image()
+    """Loads the map of nav item nav_id (1-based) into buffer."""
+    if not 0 < nav_id <= len(_sim.nav_items) or _sim.nav_items[nav_id - 1].item_type != 2:
+        raise SEMerror(f"Navigator item {nav_id} is not a map")
+    _sim.loadMap(nav_id, buffer)
+    _state.script_vars["imageTickTime"] = _sim.buffers[buffer].tick
 
 def PutImageInBuffer(img_array, buffer, sizeX, sizeY, source_buf="A"):
-    _state.buffers[buffer] = np.array(img_array)
-    _state.script_vars["imageTickTime"] = time.time()
+    source = _sim.buffers.get(source_buf)
+    image = _sim_module.ImageBuffer(np.reshape(np.asarray(img_array), (sizeY, sizeX)), source.pix_size if source else 1.0,
+                                    source.stage if source else None, None, source.mag_index if source else None)
+    _sim.putInBuffer(buffer, image)
+    _state.script_vars["imageTickTime"] = image.tick
 
 def bufferImage(buffer_letter):
     """Returns image from buffer as numpy array."""
-    if buffer_letter in _state.buffers:
-        return _state.buffers[buffer_letter]
-    return _generate_dummy_image()
+    return _buffer(buffer_letter).img
 
 def ImageProperties(buffer="A"):
-    """Returns: sizeX, sizeY, binning, exposure, pixelSize."""
-    if buffer in _state.buffers:
-        img = _state.buffers[buffer]
-        return (img.shape[1], img.shape[0], 1, 1.0, _state.camera_pix_size)
-    return (_state.camera_dims[0], _state.camera_dims[1], 1, 1.0, _state.camera_pix_size)
+    """Returns: sizeX, sizeY, binning, exposure, pixelSize (nm), mode."""
+    image = _buffer(buffer)
+    return (image.img.shape[1], image.img.shape[0], image.binning, 1.0, image.pix_size, 1)
 
 def ImageConditions(buffer="A"):
     """Returns: dose, magnification, ..."""
-    return (1.0, _state.mag)
+    image = _buffer(buffer)
+    return (1.0, _sim_module.magnification(image.mag_index) if image.mag_index in _sim_module.MAGS else 0)
 
 def ReportMeanCounts(buffer="A", option=0):
-    if buffer in _state.buffers:
-        return float(np.mean(_state.buffers[buffer]))
-    return np.random.uniform(50, 200)
+    return float(np.mean(_buffer(buffer).img))
 
 def ReduceImage(buffer, factor):
-    """Reduce image by factor."""
-    if buffer in _state.buffers:
-        from skimage import transform as skt
-        img = _state.buffers[buffer]
-        reduced = skt.rescale(img, 1.0 / factor, anti_aliasing=True)
-        _state.buffers["A"] = reduced.astype(np.float32)
+    """Reduces image by factor into A."""
+    source = _buffer(buffer)
+    from skimage import transform as skt
+    reduced = skt.rescale(source.img, 1.0 / factor, anti_aliasing=True, preserve_range=True)
+    _sim.putInBuffer("A", _sim_module.ImageBuffer(reduced, source.pix_size * factor, source.stage, source.s2px / factor, source.mag_index))
 
 def AddBufToStackWindow(buffer, *args):
     pass
@@ -716,23 +630,18 @@ def AddBufToStackWindow(buffer, *args):
 # ---------------------------------------------------------------------------
 
 def BufImagePosToStagePos(buffer, flag, x, y):
-    """Convert buffer image position to stage coordinates. Returns stage X, Y, Z."""
-    # Simple linear approximation
-    cx = _state.camera_dims[0] / 2
-    cy = _state.camera_dims[1] / 2
-    pix = _state.camera_pix_size / 1000.0  # nm/px -> µm/px
-    sx = _state.stage_xyz[0] + (x - cx) * pix
-    sy = _state.stage_xyz[1] + (y - cy) * pix
-    return (sx, sy, _state.stage_xyz[2])
+    """Buffer image position to stage coordinates. Returns stage X, Y, Z."""
+    image = _buffer(buffer)
+    if image.stage is None:
+        raise SEMerror(f"Image in buffer {buffer} has no stage position")
+    return (*image.px2stage(x, y), image.stage[2])
 
 def StagePosToBufImagePos(buffer, flag, sx, sy):
-    """Convert stage coordinates to buffer image position."""
-    cx = _state.camera_dims[0] / 2
-    cy = _state.camera_dims[1] / 2
-    pix = _state.camera_pix_size / 1000.0
-    x = cx + (sx - _state.stage_xyz[0]) / pix
-    y = cy + (sy - _state.stage_xyz[1]) / pix
-    return (x, y)
+    """Stage coordinates to buffer image position."""
+    image = _buffer(buffer)
+    if image.stage is None:
+        raise SEMerror(f"Image in buffer {buffer} has no stage position")
+    return tuple(image.stage2px(sx, sy))
 
 
 # ---------------------------------------------------------------------------
@@ -743,10 +652,10 @@ def _identity_flat():
     return (1.0, 0.0, 0.0, 1.0)
 
 def StageToSpecimenMatrix(mag_index=0):
-    return (-1.0, 0.0, 0.0, -1.0)
+    return (1.0, 0.0, 0.0, 1.0)
 
 def SpecimenToStageMatrix(mag_index=0):
-    return (-1.0, 0.0, 0.0, -1.0)
+    return (1.0, 0.0, 0.0, 1.0)
 
 def ISToSpecimenMatrix(mag_index=0):
     return _identity_flat()
@@ -755,17 +664,12 @@ def SpecimenToISMatrix(mag_index=0):
     return _identity_flat()
 
 def CameraToSpecimenMatrix(mag_index=0):
-    # Return a realistic rotation matrix based on camera rotation
-    angle = np.radians(_state.camera_rotation)
-    scale = _state.camera_pix_size / 1000.0  # nm -> µm
-    return (scale * np.cos(angle), scale * np.sin(angle),
-            -scale * np.sin(angle), scale * np.cos(angle))
+    pix_size = _sim_module.MAGS.get(mag_index, _sim.pix_size) / 1000
+    return (pix_size, 0.0, 0.0, -pix_size)
 
 def SpecimenToCameraMatrix(mag_index=0):
-    angle = np.radians(-_state.camera_rotation)
-    scale = 1000.0 / _state.camera_pix_size  # µm -> nm -> px
-    return (scale * np.cos(angle), scale * np.sin(angle),
-            -scale * np.sin(angle), scale * np.cos(angle))
+    pix_size = _sim_module.MAGS.get(mag_index, _sim.pix_size) / 1000
+    return (1 / pix_size, 0.0, 0.0, -1 / pix_size)
 
 def ReportComaVsISmatrix():
     return _identity_flat()
@@ -779,137 +683,118 @@ def ReportTiltAxisOffset():
 # ---------------------------------------------------------------------------
 
 def OpenNavigator(path=None):
-    _state.nav_open = True
+    _sim.nav_open = True
+    _sim.nav_items, _sim.current_nav_index = [], 0
     if path:
-        _state.nav_file = str(path)
-        # Create the file if it doesn't exist
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        if not p.exists():
-            p.write_text("AdocVersion = 2.00\nLastSavedAs = " + str(p) + "\n\n")
+        _sim.nav_file = _sim.path(path)
+        _sim.writeNav()
 
 def CloseNavigator():
-    _state.nav_open = False
+    _sim.nav_open = False
 
 def ReadNavFile(path):
-    _state.nav_file = str(path)
-    _state.nav_open = True
-    _state.current_nav_index = 1     # SerialEM selects the first item of a loaded navigator
+    _sim.readNav(_sim.path(path))
 
 def SaveNavigator(path=None):
-    """Save navigator file. In mock mode, calls registered callback to write nav state to disk."""
+    """Writes the mock's navigator items to the nav file."""
     if path:
-        _state.nav_file = str(path)
-    if _state._save_nav_callback is not None:
-        _state._save_nav_callback(_state.nav_file)
-    else:
-        # No callback registered — ensure file exists so readFromFile won't fail
-        p = Path(_state.nav_file) if _state.nav_file else None
-        if p:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            if not p.exists():
-                p.write_text("AdocVersion = 2.00\nLastSavedAs = " + str(p) + "\n\n")
+        _sim.nav_file = _sim.path(path)
+    if _sim.nav_file is None:
+        raise SEMerror("Navigator has no file to save to")
+    _sim.writeNav()
 
-def RegisterNavSaveCallback(callback):
-    """Register a callback(path) that writes the navigator state to disk.
-    Called by SaveNavigator in mock mode. The Navigator class should register
-    this to ensure its in-memory state is persisted before re-reading."""
-    _state._save_nav_callback = callback
 
 def ReportNavFile(parts=0):
+    if _sim.nav_file is None:
+        raise SEMerror("Navigator is not open with a file defined")
     if not parts:
-        return _state.nav_file
-    nav_file = Path(_state.nav_file)
-    return (str(nav_file.with_suffix("")), nav_file.suffix, str(nav_file.parent) + "/", nav_file.stem)
+        return str(_sim.nav_file)
+    return (str(_sim.nav_file.with_suffix("")), _sim.nav_file.suffix, str(_sim.nav_file.parent) + "/", _sim.nav_file.stem)
 
 def ReportIfNavOpen():
-    return 2 if _state.nav_open else 0  # 2 = open and saved, 1 = open but not saved, 0 = not open
+    """2 = open with file, 1 = open without file, 0 = not open."""
+    if not _sim.nav_open:
+        return 0
+    return 2 if _sim.nav_file else 1
 
 def ReportNumNavAcquire():
     return (_state.nav_acquire_count, 0)
 
 def NavIndexWithLabel(label):
-    """Returns 1-based index of first nav item with matching label, or 0."""
-    for i, item in enumerate(_state.nav_items):
-        if item.get("label") == label:
-            return i + 1
-    return 0
+    return next((index + 1 for index, item in enumerate(_sim.nav_items) if item.label == label), 0)
 
 def NavIndexWithNote(note_substr):
-    for i, item in enumerate(_state.nav_items):
-        if note_substr in item.get("note", ""):
-            return i + 1
-    return 0
+    return next((index + 1 for index, item in enumerate(_sim.nav_items) if note_substr in item.note), 0)
 
 def _nav_item_report(index):
     if not index:
         raise SEMerror("There is no current Navigator item")
-    item = _state.nav_items[index - 1] if 0 < index <= len(_state.nav_items) else {}
-    return (index, item.get("x", 0.0), item.get("y", 0.0), item.get("z", 0.0), item.get("type", 0))
+    item = _sim.nav_items[index - 1]
+    return (index, *item.stage[:3], item.item_type)
 
 def ReportNavItem():
     """Reports the current item: (index, x, y, z, type)."""
-    return _nav_item_report(_state.current_nav_index)
+    return _nav_item_report(_sim.current_nav_index)
 
 def ReportOtherItem(index):
     """Reports item index (negative counts from the end): (index, x, y, z, type)."""
     if index < 0:
-        index = len(_state.nav_items) + index + 1
-    if not 0 < index <= len(_state.nav_items):
+        index = len(_sim.nav_items) + index + 1
+    if not 0 < index <= len(_sim.nav_items):
         raise SEMerror("Index is out of range in statement: ReportOtherItem")
     return _nav_item_report(index)
 
 def AddImagePosAsNavPoint(buffer, x, y, z=-999.0, group_id=0, no_redraw=0):
-    """Adds a navigator point from buffer image position. Returns 1-based index."""
-    _state.nav_items.append({"label": str(len(_state.nav_items) + 1),
-                             "x": float(x), "y": float(y), "z": float(z) if z > -990 else 0.0,
-                             "type": 0, "note": "", "group_id": int(group_id)})
-    _state.current_nav_index = len(_state.nav_items)
-    return len(_state.nav_items)
+    """Adds a navigator point at the buffer image position. Returns 1-based index."""
+    from SPACEtomo.modules.nav import NavItem
+    image = _buffer(buffer)
+    stage = image.px2stage(x, y)
+    item = NavItem(len(_sim.nav_items) + 1, label=str(len(_sim.nav_items) + 1))
+    item.createPoint([stage[0], stage[1], float(z) if z > -990 else image.stage[2]], _sim.newMapId(), group_id=int(group_id) or None)
+    return _sim.addItem(item)
 
 def DeleteNavigatorItem(index):
-    if 0 < index <= len(_state.nav_items):
-        _state.nav_items.pop(index - 1)
+    _item(index)
+    _sim.nav_items.pop(index - 1)
+    for i, item in enumerate(_sim.nav_items):
+        item.nav_index = i + 1
 
 def ChangeItemLabel(index, label):
-    if 0 < index <= len(_state.nav_items):
-        _state.nav_items[index - 1]["label"] = str(label)
+    _item(index).label = str(label)
 
 def ChangeItemNote(index, note=""):
-    if 0 < index <= len(_state.nav_items):
-        _state.nav_items[index - 1]["note"] = str(note)
+    _item(index).note = str(note)
 
 def ChangeItemColor(index, color):
-    if 0 < index <= len(_state.nav_items):
-        _state.nav_items[index - 1]["color"] = int(color)
+    _item(index).entries["Color"] = [str(int(color))]
 
 def ChangeItemDraw(index, draw=None):
-    if 0 < index <= len(_state.nav_items):
-        item = _state.nav_items[index - 1]
-        item["draw"] = int(not item.get("draw", 1)) if draw is None else int(bool(draw))
+    item = _item(index)
+    current = int(item.entries.get("Draw", ["1"])[0])
+    item.entries["Draw"] = [str(int(not current) if draw is None else int(bool(draw)))]
 
 def SetItemAcquire(index=0, state=1):
-    if 0 < index <= len(_state.nav_items):
-        _state.nav_items[index - 1]["acquire"] = int(state)
+    _item(index or _sim.current_nav_index).entries["Acquire"] = [str(int(bool(state)))]
 
 def SetSelectedNavItem(index, no_redraw=0):
-    _state.current_nav_index = int(index)
+    _item(index)
+    _sim.current_nav_index = int(index)
 
 def ShiftItemsByMicrons(dx, dy, registration=-1, as_marker_shift=0):
-    for item in _state.nav_items:
-        item["x"] += float(dx)
-        item["y"] += float(dy)
+    for item in _sim.nav_items:
+        item.stage[:2] += [float(dx), float(dy)]
+        for key, delta in (("PtsX", float(dx)), ("PtsY", float(dy))):
+            if key in item.entries:
+                item.entries[key] = [str(float(val) + delta) for val in item.entries[key]]
 
 def NewMap(flag=0, filename=""):
-    """Returns 1-based nav index of new map."""
-    _state.nav_items.append({"label": "Map", "x": _state.stage_xyz[0],
-                             "y": _state.stage_xyz[1], "z": _state.stage_xyz[2],
-                             "type": 2, "note": filename, "map_file": filename})
-    _state.current_nav_index = len(_state.nav_items)
-    return len(_state.nav_items)
+    """Makes a map from the image in A (or the montage just acquired). Returns 1-based nav index."""
+    if "A" not in _sim.buffers:
+        raise SEMerror("There is no image in buffer A to make a map from")
+    return _sim.newMap(str(filename))
 
 def GetUniqueNavID():
-    return len(_state.nav_items) + 1000
+    return _sim.newMapId()
 
 def RealignReloadedGrid(map_id, *args):
     pass
@@ -920,44 +805,56 @@ def RealignReloadedGrid(map_id, *args):
 # ---------------------------------------------------------------------------
 
 def OpenNewFile(path):
-    _state.open_files.append(str(path))
-    _state.current_file_index = len(_state.open_files)
+    file = _sim.path(path)
+    if file.exists() and not _state.file_overwrite_allowed:
+        file.unlink()
+    _sim.files.append(file)
+    _sim.current_file = file
 
 def OpenOldFile(path):
-    if str(path) not in _state.open_files:
-        _state.open_files.append(str(path))
-    _state.current_file_index = _state.open_files.index(str(path)) + 1
+    file = _sim.path(path)
+    if not file.exists():
+        raise SEMerror(f"File {file} does not exist")
+    if file not in _sim.files:
+        _sim.files.append(file)
+    _sim.current_file = file
 
 def CloseFile(stop_if_none=""):
-    if _state.open_files and _state.current_file_index > 0:
-        idx = _state.current_file_index - 1
-        if idx < len(_state.open_files):
-            _state.open_files.pop(idx)
-        _state.current_file_index = max(0, len(_state.open_files))
+    if _sim.current_file is None:
+        if stop_if_none:
+            raise SEMerror("There is no open image file to close")
+        return
+    _sim.files.remove(_sim.current_file)
+    _sim.current_file = _sim.files[-1] if _sim.files else None
 
 def SwitchToFile(file_number):
-    _state.current_file_index = int(file_number)
+    _sim.current_file = _sim.files[int(file_number) - 1]
 
 def ReadFile(section, buffer="A"):
-    _generate_dummy_image()
+    """Reads section of the current file into buffer (no stage position known)."""
+    if _sim.current_file is None:
+        raise SEMerror("There is no open image file to read from")
+    img, pix_size = _sim.readFromFile(_sim.current_file, int(section))
+    _sim.buffers[buffer] = _sim_module.ImageBuffer(img, pix_size)
+    _state.script_vars["imageTickTime"] = _sim.buffers[buffer].tick
 
 def IsImageFileOpen(path):
-    return 1 if str(path) in _state.open_files else 0
+    return int(_sim.path(path) in _sim.files)
 
 def ReportFileNumber():
-    return len(_state.open_files)
+    return _sim.files.index(_sim.current_file) + 1 if _sim.current_file else 0
 
 def ReportFileZsize():
     return 1
 
 def ReportNumOpenFiles():
-    return len(_state.open_files)
+    return len(_sim.files)
 
 def ReportOpenImageFile(file_number, parts=0):
-    idx = int(file_number) - 1
-    if 0 <= idx < len(_state.open_files):
-        return _state.open_files[idx]
-    return ""
+    index = int(file_number) - 1
+    if not 0 <= index < len(_sim.files):
+        raise SEMerror(f"There is no open file number {file_number}")
+    return str(_sim.files[index])
 
 def AllowFileOverwrite(flag=1):
     _state.file_overwrite_allowed = bool(flag)
@@ -971,10 +868,14 @@ def SetFrameBaseName(*args):
 # ---------------------------------------------------------------------------
 
 def SetupFullMontage(overlap, filename):
-    pass
+    """Sets up a montage of the whole grid at the current mag and opens the montage file."""
+    _sim.montage = {"kind": "full", "file": _sim.path(filename), "overlap": float(overlap)}
 
 def SetupPolygonMontage(nav_id, flag, filename):
-    pass
+    """Sets up a montage of the polygon item nav_id (1-based) and opens the montage file."""
+    if _item(nav_id).item_type != 1:
+        raise SEMerror(f"Navigator item {nav_id} is not a polygon")
+    _sim.montage = {"kind": "polygon", "poly_index": int(nav_id), "file": _sim.path(filename), "view": _state.montage_param_set == 2}
 
 def OpenNewMontage(sizeX, sizeY, filename):
     OpenNewFile(filename)
@@ -986,10 +887,21 @@ def SetMontPanelParams(*args):
     pass
 
 def ParamSetToUseForMontage(param_set, defer=0):
-    pass
+    _state.montage_param_set = int(param_set)
 
 def ReportNumMontagePieces():
-    return 4  # dummy: always 4 pieces
+    """Number of camera fields needed to cover the set up montage area."""
+    if not _sim.montage:
+        raise SEMerror("No montage was set up")
+    if _sim.montage["kind"] == "full":
+        extent = np.array([_sim.getSpecimen().region] * 2, dtype=float)
+        pix_size = _sim.pix_size
+    else:
+        item = _item(_sim.montage["poly_index"])
+        pts = np.array([[float(x) for x in item.entries["PtsX"]], [float(y) for y in item.entries["PtsY"]]])
+        extent, pix_size = pts.max(axis=1) - pts.min(axis=1), _sim_module.MAGS[_sim_module.LD_AREAS["V"][0]]
+    field = np.array(_sim_module.CAMERA_DIMS) * pix_size / 1000 * 0.9
+    return int(np.prod(np.ceil(extent / field)))
 
 
 # ---------------------------------------------------------------------------
@@ -1003,7 +915,11 @@ def ReportSlotStatus(slot):
     return (-1,)
 
 def LoadCartridge(slot):
-    pass
+    """Loads a new grid: a new synthetic specimen is created on the next image."""
+    if slot != _sim.loaded_slot:
+        _sim.loaded_slot = int(slot)
+        _sim.specimen = None
+        _sim.maps = []
 
 def UnloadCartridge():
     pass
@@ -1123,14 +1039,40 @@ def ManageDewarsAndPumps(checks=0):
 # ---------------------------------------------------------------------------
 
 def ReportDirectory():
-    import os
-    return os.getcwd()
+    return str(_sim.directory)
 
 def SetDirectory(path):
-    pass
+    _sim.directory = Path(path)
 
 def UserSetDirectory(prompt=""):
     return str(Path.cwd())
+
+
+# ---------------------------------------------------------------------------
+# Simulated microscope helpers
+# ---------------------------------------------------------------------------
+
+def ReportMagIndex():
+    return _sim.mag_index
+
+def _acquire(area):
+    _sim.acquire(area)
+    _state.script_vars["imageTickTime"] = _sim.buffers["A"].tick
+
+def L():
+    """Search (Low Dose S area)."""
+    _acquire("S")
+
+def _buffer(letter):
+    try:
+        return _sim.getBuffer(letter)
+    except KeyError:
+        raise SEMerror(f"Buffer {letter} is empty") from None
+
+def _item(index):
+    if not 0 < index <= len(_sim.nav_items):
+        raise SEMerror(f"Navigator item index {index} is out of range")
+    return _sim.nav_items[index - 1]
 
 
 # ---------------------------------------------------------------------------

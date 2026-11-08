@@ -1,12 +1,11 @@
-"""Tests for the synthetic grid and dummy buffer used by the end-to-end tests."""
+"""Tests for the synthetic grid and the simulated microscope behind the mock serialem module."""
 
 import numpy as np
 import pytest
 
-from SPACEtomo.modules.dummy.buf import BufferDummy
+import serialem as sem
+
 from SPACEtomo.modules.dummy.specimen import CATS, INTENSITY, Specimen, stageToPixelMatrix, toCounts
-from SPACEtomo.modules.mod_wg import BBox, Boxes
-from SPACEtomo.modules.nav import Navigator
 
 
 # --- Synthetic grid ---
@@ -43,53 +42,72 @@ def test_lamella_detail_contains_target_classes():
         assert np.any(seg == CATS[name]), name
 
 
-# --- Dummy buffer geometry and alignment ---
+# --- Simulated microscope behind the mock serialem module ---
 
-def _buffer(img, stage, pix_size, buffer="A"):
-    BufferDummy.last_dummy_info = {"stage": np.array(stage, dtype=float), "pix_size": pix_size}
-    buf = BufferDummy(buffer, img=img)
-    buf.pix_size = pix_size
-    return buf
-
-
-def test_px2stage_and_stage2px_are_inverse():
-    buf = _buffer(np.zeros((400, 600), dtype=np.int16), stage=(100.0, -50.0), pix_size=500.0)
-
-    assert np.allclose(buf.px2stage(buf.shape / 2), [100.0, -50.0])
-    assert np.allclose(buf.px2stage([400, 100]), [100.0 + 100 * 0.5, -50.0 + 100 * 0.5])     # right and up
-    assert np.allclose(buf.stage2px(buf.px2stage([123.0, 321.0])), [123.0, 321.0])
+def _record_at(stage, state="IM"):
+    sem.GoToImagingState(state)
+    sem.MoveStageTo(*stage)
+    sem.R()
 
 
-@pytest.mark.parametrize("pix_size, shape, true_shift", [(10.0, (2048, 2048), (2.0, -3.0)), (400.0, (512, 512), (8.0, 4.0))])
-def test_alignTo_recovers_specimen_shift(pix_size, shape, true_shift):
-    """The content shift of an image relative to a (lower mag) reference is measured in µm (x right, y up)."""
+def test_buffer_positions_map_to_stage_and_back():
+    _record_at((100.0, -50.0))
+    width, height, _, _, pix_size, _ = sem.ImageProperties("A")
 
-    specimen = Specimen(seed=5, n_lamellae=1)
-    center = specimen.lamellae[0].center
-    ref = _buffer(toCounts(specimen.render(center, (2048, 2048), 400.0)), center, 400.0, buffer="O")
-    img = _buffer(toCounts(specimen.render(center + true_shift, shape, pix_size)), center, pix_size)
-
-    _, ss_shift = img.alignTo(ref)
-
-    assert np.allclose(ss_shift, true_shift, atol=0.5)
+    assert np.allclose(sem.BufImagePosToStagePos("A", 1, width / 2, height / 2)[:2], [100.0, -50.0])
+    right_up = sem.BufImagePosToStagePos("A", 1, width / 2 + 100, height / 2 - 100)[:2]
+    assert np.allclose(right_up, [100.0 + 100 * pix_size / 1000, -50.0 + 100 * pix_size / 1000])     # column +x, row -y
+    assert np.allclose(sem.StagePosToBufImagePos("A", 1, *right_up), [width / 2 + 100, height / 2 - 100])
 
 
-def test_addNavBoxes_places_padded_polygon_at_box_position(tmp_path):
-    nav = Navigator.__new__(Navigator)
-    nav.file, nav.header, nav.items, nav.map_id_counter = tmp_path / "test.nav", "", [], 1
-    BufferDummy.nav = nav
-    buf = _buffer(np.zeros((1000, 1000), dtype=np.int16), stage=(0.0, 0.0), pix_size=400.0)
-    buf.nav_id = None
-    boxes = Boxes([[600, 200, 640, 300, 2, 0.9]], label_prefix="PP", pix_size=400.0, img_size=(1000, 1000))
+def test_new_images_roll_buffers():
+    _record_at((0.0, 0.0))
+    first = sem.bufferImage("A").copy()
+    _record_at((50.0, 0.0))
 
-    buf.addNavBoxes(boxes, label_prefix="PP", padding_factor=1.5)
+    assert np.array_equal(sem.bufferImage("B"), first)
 
-    polygon = nav.items[-1]
-    pts = np.array([polygon.entries["PtsX"], polygon.entries["PtsY"]], dtype=float)
-    assert polygon.label == "PP01"
-    assert np.allclose((pts.min(axis=1) + pts.max(axis=1)) / 2, buf.px2stage(BBox([600, 200, 640, 300], 2).center))
-    assert np.allclose(pts.max(axis=1) - pts.min(axis=1), np.array([40, 100]) * 1.5 * 0.4)
-    assert np.allclose(polygon.stage[:2], (pts.min(axis=1) + pts.max(axis=1)) / 2)
+
+@pytest.mark.parametrize("true_shift", [(2.0, -3.0), (-4.0, 1.5)])
+def test_AlignBetweenMags_reports_specimen_shift(true_shift):
+    """Shift of the image content in A relative to a lower mag reference, reported in nm (x right, y up)."""
+
+    from SPACEtomo.modules.dummy.sim import ImageBuffer, sim
+    _record_at((0.0, 0.0))
+    center = sim.getSpecimen().lamellae[0].center
+    sim.buffers["O"] = ImageBuffer(toCounts(sim.specimen.render(center, (2048, 2048), 400.0)), 400.0, [*center, 0])
+    sim.mag_index = 15
+    sim.stage[:2] = center + true_shift - sim.specimen.offsets["IM"]     # IM images show the world with the IM offset
+    sem.R()
+
+    sem.AlignBetweenMags("O", -1, -1, -2, 0, -1, 1)
+
+    assert np.allclose(np.array(sem.ReportAlignShift()[4:6]) / 1000, true_shift, atol=0.5)
+
+
+def test_navigator_is_owned_by_the_mock(tmp_path):
+    """Items made by SerialEM commands survive SaveNavigator/ReadNavFile; maps keep their geometry."""
+
+    nav_file = tmp_path / "grid.nav"
+    sem.OpenNavigator(str(nav_file))
+    sem.SetDirectory(str(tmp_path))
+    _record_at((20.0, 30.0))
+    sem.OpenNewFile("map.mrc")
+    sem.S()
+    map_index = int(sem.NewMap(0, "map.mrc"))
+    sem.CloseFile()
+    point_index = int(sem.AddImagePosAsNavPoint("A", 0, 0))
+    sem.SaveNavigator()
+
+    sem.CloseNavigator()
+    sem.ReadNavFile(str(nav_file))
+    sem.LoadOtherMap(map_index, "B")
+
+    assert "[Item = 1]" in nav_file.read_text() and "MapFile" in nav_file.read_text()
+    assert np.allclose(sem.ReportOtherItem(map_index)[1:3], [20.0, 30.0])
+    width, height = sem.ImageProperties("B")[:2]
+    assert np.allclose(sem.BufImagePosToStagePos("B", 1, width / 2, height / 2)[:2], [20.0, 30.0], atol=0.01)
+    assert np.allclose(sem.ReportOtherItem(point_index)[1:3], sem.BufImagePosToStagePos("B", 1, 0, 0)[:2], atol=0.01)
 
 
 def test_stage_to_pixel_matrix_flips_y():

@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/04/26
 # Revision:     v1.2
-# Last Change:  2024/07/18: reworked GUI to class
+# Last Change:  2026/11/08: added dummy task (simulated microscope)
+#               2024/07/18: reworked GUI to class
 # #             2024/06/07: added lamella table row highlighting, added save coords in YOLO format
 #               2024/06/05: introduced Menu class, added shortcuts for most buttons
 #               2024/06/04: added pix size check for export, added rescaling of mrc file
@@ -31,8 +32,6 @@ import shutil
 from pathlib import Path
 
 from SPACEtomo.modules.utils import log
-from SPACEtomo.modules.gui.lam_sel import GridGUI
-from SPACEtomo.modules.gui.tgt_sel import TargetGUI
 
 # Attempt SerialEM import
 import SPACEtomo.config as config
@@ -56,7 +55,7 @@ def run_process(process):
 def main():
     # Process arguments
     parser = argparse.ArgumentParser(description="Command line interface for different SPACEtomo functions (e.g. GUIs).")
-    parser.add_argument("task", type=str, default="targets", help="Name of the SPACEtomo task to run. Options: targets -> Open target selection GUI | grid -> Open Region selection GUI | run -> Start SPACEtomo run | scripts -> Get copy of SerialEM scripts")
+    parser.add_argument("task", type=str, default="targets", help="Name of the SPACEtomo task to run. Options: targets -> Open target selection GUI | grid -> Open Region selection GUI | run -> Start SPACEtomo run | scripts -> Get copy of SerialEM scripts | dummy [session_dir] [level] [seed] -> Run levels 1-4 on a synthetic grid with a simulated microscope")
     parser.add_argument("map_file", nargs="?", type=str, default="", help="Absolute path to a map file to load in GUI [.png].")
     # Deal with *args
     parser.add_argument("args", nargs=argparse.REMAINDER, help="Additional arguments for the task.")
@@ -65,9 +64,12 @@ def main():
     # Get GUI
     gui = None
     process = None
+    # GUIs are imported per task (modules check for SerialEM on import, dummy installs the simulated one first)
     if "target" in args.task.lower():
+        from SPACEtomo.modules.gui.tgt_sel import TargetGUI
         gui = TargetGUI
     elif "lamella" in args.task.lower() or "roi" in args.task.lower() or "region" in args.task.lower() or "grid" in args.task.lower():
+        from SPACEtomo.modules.gui.lam_sel import GridGUI
         gui = GridGUI
     elif "setting" in args.task.lower():
         from SPACEtomo.modules.gui.set import SettingsGUI
@@ -87,6 +89,12 @@ def main():
             log(f"SerialEM scripts were successfully copied to: {target_path}")
         else:
             log(f"ERROR: A folder named SerialEM_scripts already exists!")
+    elif args.task.lower() == "dummy":
+        # Standalone run on a synthetic grid with the simulated microscope (no SerialEM needed)
+        from SPACEtomo.modules.dummy import session
+        session_dir = Path(args.map_file) if args.map_file else Path.cwd() / "SPACEtomo_dummy"
+        level, seed = (list(args.args) + [4, 0])[:2]
+        session.run(session_dir, automation_level=int(level), seed=int(seed))
     elif args.task.lower() == "sort":
         from SPACEtomo import run_sort
         process = run_sort.main(Path(args.map_file) if args.map_file else None, *args.args)

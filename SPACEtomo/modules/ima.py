@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/10
 # Revision:     v1.4
-# Last Change:  2026/11/06: fixed shifting all nav items when aligning the last ROI
+# Last Change:  2026/11/08: removed dummy class shadowing
+#               2026/11/06: fixed shifting all nav items when aligning the last ROI
 #               2026/11/06: fixed IM map losing PP label with custom ROI names
 #               2026/02/22: added support for custom ROI names
 #               2025/02/21: refactored to always have iterative IM reference alignment
@@ -24,9 +25,6 @@ from SPACEtomo.modules.utils import log
 from SPACEtomo.modules import utils
 from SPACEtomo import config
 
-if config.DUMMY:    # Shadow classes with dummy classes
-    from SPACEtomo.modules.dummy.scope import MicroscopeDummy as Microscope
-    from SPACEtomo.modules.dummy.buf import BufferDummy as Buffer
 
 class IMAlignment:
 

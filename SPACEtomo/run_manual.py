@@ -5,7 +5,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2026/11/06: fixed external monitoring never being called while waiting for files
+# Last Change:  2026/11/08: DUMMY mode runs the real classes with the simulated microscope
+#               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/07/10: warn if manual map pixel size matches neither View nor Search mode
 #               2025/03/21: fixed map naming
 #               2025/02/17: added handling of multiple maps
@@ -29,7 +30,11 @@ if not config.DUMMY:
     except ModuleNotFoundError:
         SERIALEM = False
 else:
-    SERIALEM = False
+    # DUMMY mode: simulated microscope (mock serialem) imaging a synthetic grid
+    from SPACEtomo.modules.dummy import install_mock_serialem
+    install_mock_serialem()
+    import serialem as sem
+    SERIALEM = True
 
 import mrcfile
 from pathlib import Path
@@ -43,10 +48,8 @@ from SPACEtomo.modules.tgt import PACEArea
 import SPACEtomo.modules.utils as utils
 import SPACEtomo.modules.utils_sem as usem
 
-if config.DUMMY:    # Shadow classes with dummy classes
-    log(f"WARNING: Running SPACEtomo in DUMMY mode! Run SPACEconfig dummy command to toggle it off!")
-    from SPACEtomo.modules.dummy.scope import MicroscopeDummy as Microscope
-    from SPACEtomo.modules.dummy.buf import BufferDummy as Buffer
+if config.DUMMY:
+    log(f"WARNING: Running SPACEtomo in DUMMY mode (simulated microscope)! Run SPACEconfig dummy command to toggle it off!")
 
 ### Run on import: Connect to SerialEM, get session directory
 
@@ -96,15 +99,6 @@ def main():
     nav = Navigator(is_open=True)
     Buffer.nav = nav            # Provide reference for all buffers
 
-    if config.DUMMY:            # Provide additional references to dummy classes
-        microscope.cur_dir = CUR_DIR
-        microscope.map_dir = MAP_DIR
-        microscope.nav = nav
-        Buffer.imaging_params = imaging_params
-        if imaging_params.rec_ta_rotation is None:
-            log(f"ERROR: Cannot run in DUMMY mode without mic_params.json!")
-            return
-        
     #########################################
     ############ STEP 1: MM map  ############
     #########################################
@@ -179,7 +173,7 @@ def main():
             save_future.result() # Temporary, because montage collection is not threaded, TODO: multiprocessing instead
             save_future = None
 
-        if settings["manual_selection"] or config.DUMMY:
+        if settings["manual_selection"]:
             MM_model.saveEmptySeg(MAP_DIR, map_name)
         else:
             if not EXTERNAL_RUN:

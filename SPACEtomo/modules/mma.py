@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/02/06
 # Revision:     v1.4
-# Last Change:  2026/02/22: added support for custom ROI names
+# Last Change:  2026/11/08: removed dummy class shadowing
+#               2026/02/22: added support for custom ROI names
 #               2025/02/12: added geo estimation
 #               2025/02/06: outsourcing from run.py
 # ===================================================================
@@ -25,9 +26,6 @@ from SPACEtomo.modules.utils import log
 from SPACEtomo.modules.ext import MMModel
 from SPACEtomo import config
 
-if config.DUMMY:    # Shadow classes with dummy classes
-    from SPACEtomo.modules.dummy.scope import MicroscopeDummy as Microscope
-    from SPACEtomo.modules.dummy.buf import BufferDummy as Buffer
 
 class MMMAcquisition:
     def __init__(self, map_dir: Path, map_file: Path, poly_id: int, microscope: Microscope, navigator: Navigator) -> None:

@@ -181,7 +181,7 @@ You can edit and adjust the config.py like a text file for your needs.
 <details>
     <summary>Settings for development and debugging</summary>
 
-- `DUMMY`: Allows testing of some functions without SerialEM (default: False).
+- `DUMMY`: Runs SPACEtomo with a simulated microscope instead of SerialEM, imaging a synthetic lamella grid (default: False). For a standalone test run of automation levels 1-4 on any computer use `SPACEtomo dummy <session_dir> [level] [seed]`; the synthetic grid's ground truth is written to `dummy_ground_truth.json` in the grid folder.
 - `DEBUG`: Additional log output for troubleshooting (default: False).
 - `BREAKPOINTS`: Waits at every debug output for user to press `B` key.
 

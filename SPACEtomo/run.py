@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.4
-# Last Change:  2026/11/06: fixed external monitoring never being called while waiting for files
+# Last Change:  2026/11/08: DUMMY mode runs the real classes with the simulated microscope
+#               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/02/22: added support for custom ROI names
 #               2025/02/06: outsourced MM map acquisition to mma.py
 #               2025/01/10: outsourced IM align to ima.py
@@ -68,7 +69,11 @@ if not config.DUMMY:
     except ModuleNotFoundError:
         SERIALEM = False
 else:
-    SERIALEM = False
+    # DUMMY mode: simulated microscope (mock serialem) imaging a synthetic grid
+    from SPACEtomo.modules.dummy import install_mock_serialem
+    install_mock_serialem()
+    import serialem as sem
+    SERIALEM = True
     
 import time
 import numpy as np
@@ -85,10 +90,8 @@ from SPACEtomo.modules.tgt import PACEArea
 import SPACEtomo.modules.utils as utils
 import SPACEtomo.modules.utils_sem as usem
 
-if config.DUMMY:    # Shadow classes with dummy classes
-    log(f"WARNING: Running SPACEtomo in DUMMY mode! Run SPACEconfig dummy command to toggle it off!")
-    from SPACEtomo.modules.dummy.scope import MicroscopeDummy as Microscope
-    from SPACEtomo.modules.dummy.buf import BufferDummy as Buffer
+if config.DUMMY:
+    log(f"WARNING: Running SPACEtomo in DUMMY mode (simulated microscope)! Run SPACEconfig dummy command to toggle it off!")
 
 ### Run on import: Connect to SerialEM, get session directory
 
@@ -172,17 +175,6 @@ def main():
             # Load grid
             nav = Navigator(CUR_DIR / (grid_name + ".nav"))
             Buffer.nav = nav            # Provide reference for all buffers
-
-            if config.DUMMY:            # Provide additional references to dummy classes
-                microscope.cur_dir = CUR_DIR
-                microscope.map_dir = MAP_DIR
-                microscope.nav = nav
-                microscope.imaging_params = imaging_params
-                Buffer.microscope = microscope
-                Buffer.imaging_params = imaging_params
-                if imaging_params.rec_ta_rotation is None:
-                    log(f"ERROR: Cannot run in DUMMY mode without mic_params.json!")
-                    return
 
             if microscope.loaded_grid == grid_slot:
                 already_loaded = True

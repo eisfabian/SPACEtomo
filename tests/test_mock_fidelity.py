@@ -12,7 +12,7 @@ import serialem as sem
 # Functions of the real module that are not script commands, and mock-only hooks
 MODULE_ONLY = {"ConnectToSEM", "ScriptIsInitialized", "PutImageInBuffer", "ReturnAllValuesAsTuples",
                "ReportNumModuleFuncs", "SetBufferImageTimeout"}
-MOCK_ONLY = {"RegisterNavSaveCallback"}
+MOCK_ONLY = set()
 
 
 def _commands(version):

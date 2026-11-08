@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein / Claude
 # Created:      2026/11/07
 # Revision:     v1.4
-# Last Change:  2026/11/07: created
+# Last Change:  2026/11/08: faster shot noise (Gaussian approximation of Poisson)
+#               2026/11/07: created
 # ===================================================================
 #
 # Coordinates: the world is the nominal stage frame of the whole grid map (µm). An image of pixel size p (µm)
@@ -290,8 +291,14 @@ class Specimen:
 
 
 def toCounts(img, mean_counts=2000, blur_px=0.8):
-    """Converts relative intensities into int16 camera counts with blur and Poisson noise."""
+    """Converts relative intensities into int16 camera counts with blur and shot noise.
+
+    Shot noise is Poisson; at these counts it is drawn as Gaussian with variance = counts (much faster for camera frames).
+    The generator is seeded from numpy's global random state, so seeded runs stay reproducible.
+    """
     if blur_px:
         img = ndimage.gaussian_filter(img, blur_px)
-    counts = np.random.poisson(np.clip(img, 0, None) * 2 * mean_counts)
-    return np.clip(counts, 0, np.iinfo(np.int16).max).astype(np.int16)
+    counts = np.clip(img, 0, None).astype(np.float32) * 2 * mean_counts
+    rng = np.random.default_rng(np.random.randint(2**31))
+    counts += np.sqrt(counts) * rng.standard_normal(counts.shape, dtype=np.float32)
+    return np.clip(np.round(counts), 0, np.iinfo(np.int16).max).astype(np.int16)

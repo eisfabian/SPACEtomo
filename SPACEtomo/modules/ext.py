@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
 # Revision:     v1.2dev
-# Last Change:  2024/08/21: removed SPACE_DIR, fixed map staying in run list when error is detected
+# Last Change:  2026/11/08: DUMMY mode segments maps with the ground truth of the synthetic grid
+#               2024/08/21: removed SPACE_DIR, fixed map staying in run list when error is detected
 #               2024/07/31: allowed for empty seg to be 1x1 image
 #               2024/07/25: added overlap when tiling in findLamellae function
 #               2024/06/04: fixed findLamellae crash when img dims equal side lengths
@@ -970,7 +971,9 @@ def updateQueue(map_dir, WG_model=None, MM_model=None, mic_params=None, tgt_para
         run_gpu = free_gpus.pop(0)
 
         out_file = open(os.path.join(map_dir, map_name + "_SPACE.err"), "w+")
-        process = subprocess.Popen([sys.executable, Path(__file__).parent.parent / config.MM_model_script, os.path.join(map_dir, map_name + ".png")], env=dict(os.environ, CUDA_VISIBLE_DEVICES=str(run_gpu)), stdout=out_file, stderr=subprocess.STDOUT, text=True)
+        # In DUMMY mode the ground truth segmentation of the synthetic grid replaces the model
+        script = Path(__file__).parent / "dummy" / "segment.py" if config.DUMMY else Path(__file__).parent.parent / config.MM_model_script
+        process = subprocess.Popen([sys.executable, script, os.path.join(map_dir, map_name + ".png")], env=dict(os.environ, CUDA_VISIBLE_DEVICES=str(run_gpu)), stdout=out_file, stderr=subprocess.STDOUT, text=True)
         log(f"\nStarting inference for {os.path.basename(map_name)}.png on GPU {run_gpu}...")
         runs["runs"].append({"map": map_name, "gpu": run_gpu, "PID": process.pid})
 

@@ -27,5 +27,5 @@ def test_getLowDoseParams_parses_serialem_text(sem_version):
         assert params is None
         return
     assert params["low_dose_area"] == 0
-    assert params["mag_index"] == sem._state.mag_index
+    assert params["mag_index"] == sem._sim_module.LD_AREAS["V"][0]
     assert params["spot_size"] == sem._state.spot_size

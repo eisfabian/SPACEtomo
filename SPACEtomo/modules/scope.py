@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/11/07: fixed Low Dose area being stored as number after changing imaging state
+# Last Change:  2026/11/08: parameter queries also run in DUMMY mode (simulated microscope)
+#               2026/11/07: fixed Low Dose area being stored as number after changing imaging state
 #               2026/11/06: aperture commands try integer id first and fall back to letter
 #               2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
 #               2026/07/10: added checkMapArea to match manual maps to View/Search by pixel size
@@ -44,7 +45,7 @@ import SPACEtomo.modules.utils_sem as usem
 from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules import utils
-from SPACEtomo.modules.utils import log, serialem_check, dummy_skip
+from SPACEtomo.modules.utils import log, serialem_check
 
 from SPACEtomo import config
 
@@ -920,7 +921,6 @@ class ImagingParams:
             f"Manual target setup assumes a View or Search montage — geometry and virtual maps may be inaccurate.")
         return None
 
-    @dummy_skip
     @serialem_check
     def getViewParams(self, microscope: Microscope, final_attempt=False):
 
@@ -970,7 +970,6 @@ class ImagingParams:
                 sys.exit()
 
 
-    @dummy_skip
     @serialem_check
     def getRecParams(self, microscope: Microscope, final_attempt=False):
 
@@ -1001,7 +1000,6 @@ class ImagingParams:
                 log(f"ERROR: Cannot get Record parameters in current Low Dose state {microscope.low_dose}, {microscope.low_dose_area}. Check your imaging state settings!")
                 sys.exit()
 
-    @dummy_skip
     @serialem_check
     def getFocusParams(self, microscope: Microscope, final_attempt=False):
 
@@ -1047,7 +1045,6 @@ class ImagingParams:
         self.focus_beam_diameter = self.rec_beam_diameter
         self.focus_mag_index = self.rec_mag_index
 
-    @dummy_skip
     @serialem_check
     def getSearchParams(self, microscope: Microscope, final_attempt=False):
 

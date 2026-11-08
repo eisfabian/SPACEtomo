@@ -3,7 +3,8 @@
 # Purpose:      Functions for utilities needed by other packages and scripts.
 # Author:       Fabian Eisenstein
 # Created:      2024/07/18
-# Last Change:  2026/06/28: keep fast toNumpy path on newer Pillow by passing setimage extents
+# Last Change:  2026/11/08: removed dummy_skip and dummy_replace
+#               2026/06/28: keep fast toNumpy path on newer Pillow by passing setimage extents
 #               2026/03/06: fixed castString function for Windows, added file check functions
 #               2025/02/12: added alignCC
 #               2025/01/22: added Path handling to json, added breakpoint
@@ -224,34 +225,7 @@ def serialem_check(func):
         
     return inner
 
-def dummy_skip(func):
-    """Decorator to skip function in DUMMY mode."""
 
-    @wraps(func)    # wraps is needed to access proper function __name___
-    def inner(*args, **kwargs):
-        if not config.DUMMY:
-            return func(*args, **kwargs)
-        else:
-            return log(f"WARNING: {func.__module__}.{func.__name__} is skipped in DUMMY mode.")
-        
-    return inner
-
-def dummy_replace(replacement_func_name):
-    """Decorator with argument to take replacement function for function uses in DUMMY mode."""
-
-    def dummy_replace_decorator(func):
-        @wraps(func)
-        def inner(self, *args, **kwargs):
-            log(f"DEBUG: {self}, {args}, {kwargs}")
-
-            if not config.DUMMY:
-                return func(self, *args, **kwargs)
-            else:
-                replacement_func = getattr(self, replacement_func_name)
-                log(f"WARNING: {func.__module__}.{func.__name__} is replaced with {replacement_func.__module__}.{replacement_func.__name__} in DUMMY mode.")
-                return replacement_func(*args, **kwargs)
-        return inner
-    return dummy_replace_decorator
 
 def saveSettings(file, vars, start="automation_level", end="external_map_dir"):
     """Saves SPACEtomo script settings."""

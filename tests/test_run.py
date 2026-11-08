@@ -42,7 +42,7 @@ def _run_spacetomo(session_dir: Path, automation_level: int, capsys, manual_sele
     assert "SPACEtomo run completed" in capsys.readouterr().out
 
 
-# --- Ground truth of the synthetic grid (written by MicroscopeDummy) ---
+# --- Ground truth of the synthetic grid (written by the simulated microscope) ---
 
 def _ground_truth(grid_dir):
     from SPACEtomo.modules.dummy.specimen import Specimen

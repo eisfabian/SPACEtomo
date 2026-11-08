@@ -37,14 +37,12 @@ def sem_version(request):
     """Emulated SerialEM version for the test (each test starts with a fresh mock state)."""
     import serialem
     from SPACEtomo.modules.buf import Buffer
-    from SPACEtomo.modules.dummy.buf import BufferDummy
     previous = serialem.get_version()
     serialem.set_version(request.param)
     serialem.reset_mock_state()
 
-    # Reproducible dummy images (SPACETOMO_TEST_SEED to vary) and no buffer state from previous tests
+    # Reproducible synthetic grids (SPACETOMO_TEST_SEED to vary) and no buffer state from previous tests
     np.random.seed(int(os.environ.get("SPACETOMO_TEST_SEED", 0)))
-    BufferDummy.reset()
     Buffer.instances, Buffer.nav = [], None
     yield request.param
     serialem.set_version(previous)
@@ -107,37 +105,9 @@ def make_mic_params(dest: Path):
 
 
 def make_settings(dest: Path, session_dir: Path, automation_level: int = 4, manual_selection: bool = False):
-    """Write a SPACEtomo_settings.ini file."""
-    settings = configparser.ConfigParser()
-    settings["INFO"] = {"SPACEtomo version": "1.4.0b5"}
-    settings["SETTINGS"] = {
-        "automation_level": str(automation_level),
-        "grid_list": "[1]",
-        "lamella": "True",
-        "exclude_lamella_classes": "['broken', 'gone']",
-        "WG_distance_threshold": "5",
-        "WG_image_state": "WG",
-        "IM_image_state": "IM",
-        "MM_image_state": "['MM1']",
-        "WG_wait_for_inspection": "False",
-        "manual_selection": str(manual_selection),
-        "MM_wait_for_inspection": "False",
-        "target_list": "['mitos', 'nucleus']",
-        "avoid_list": "['white', 'black', 'crack', 'ice']",
-        "target_score_threshold": "0.095",
-        "penalty_weight": "0.3",
-        "sparse_targets": "True",
-        "target_edge": "True",
-        "extra_tracking": "False",
-        "max_tilt": "50",
-        "beam_margin": "5.0",
-        "IS_limit": "15.0",
-        "script_numbers": "[10, 11, 5]",
-        "session_dir": str(session_dir),
-        "external_map_dir": "",
-    }
-    with open(dest, "w") as f:
-        settings.write(f)
+    """Write a SPACEtomo_settings.ini file (same settings as a standalone DUMMY run)."""
+    from SPACEtomo.modules.dummy.session import writeSettings
+    writeSettings(dest, session_dir, automation_level, manual_selection)
 
 
 @pytest.fixture()

@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2026/11/07: polygon stage ignores closing point
+# Last Change:  2026/11/08: removed DUMMY replacements and mock save callback (the mock owns the navigator)
+#               2026/11/07: polygon stage ignores closing point
 #               2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
 #               2024/12/23: Updated shiftItems function to not use sem
 #               2024/09/04: added newPolygon function
@@ -34,7 +35,7 @@ import mrcfile
 
 from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.utils import log, getCurDir, writeMrc
-from SPACEtomo.modules.utils import serialem_check, dummy_skip, dummy_replace
+from SPACEtomo.modules.utils import serialem_check
 
 class NavItem:
     """Nav item."""
@@ -402,9 +403,6 @@ class Navigator:
 
         self.setMapIDCounter()
 
-        # Register callback so mock SaveNavigator writes nav state to disk
-        if SERIALEM and hasattr(sem, 'RegisterNavSaveCallback'):
-            sem.RegisterNavSaveCallback(lambda path: self.writeToFile(Path(path) if path else self.file))
 
     def readFromFile(self):
         """Reads lines from navigator text file and delegates to NavItem to read item blocks."""
@@ -443,7 +441,6 @@ class Navigator:
         with open(file, "w") as f:
             f.write(text)
 
-    @dummy_skip
     @serialem_check
     def loadOld(self):
         """Load nav file."""
@@ -470,7 +467,6 @@ class Navigator:
         # Load nav file
         sem.ReadNavFile(str(self.file))
 
-    @dummy_skip
     @serialem_check
     def openNew(self):
         """Open new nav file."""
@@ -491,7 +487,6 @@ class Navigator:
         # Open new nav
         sem.OpenNavigator(str(self.file))
 
-    @dummy_skip
     @serialem_check
     def getOpen(self):
         """Gets file from open nav in SerialEM."""
@@ -580,7 +575,6 @@ class Navigator:
 
         log(f"DEBUG: Shifted {counter} items by {shift}!")
 
-    @dummy_replace("newMapFromImg")
     @serialem_check
     def newMap(self, buffer=None, img_file="", label="", note="", **kwargs):                                               # Only accept keyword args to make compatible with newMapFromImg
         """Makes new navigator map from buffer."""
