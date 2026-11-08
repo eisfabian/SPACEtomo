@@ -110,11 +110,16 @@ def test_run_level2(session_dir, capsys):
     # Should have WG + IM + at least one MM map
     assert len(mm_files) >= 2, f"Expected at least 2 MRC files, found {len(mm_files)}"
 
-    # After IM alignment and MM realignment, MM maps are centered on true lamellae (despite simulated image offsets)
-    truth, _ = _ground_truth(grid_dir)
+    # After IM alignment and MM realignment, each MM map covers the whole slab of a true lamella (despite simulated image offsets;
+    # View images are shorter than the lamella, so the realignment can be off along the lamella axis by a few µm)
+    truth, specimen = _ground_truth(grid_dir)
     assert truth["maps"], "No MM maps in ground truth"
     for mm_map in truth["maps"]:
-        assert _distance_to_lamellae(mm_map["world_center"], truth) < 3, f"MM map {mm_map} not centered on a lamella"
+        map_min = np.array(mm_map["world_center"]) - np.array(mm_map["extent"]) / 2
+        map_max = np.array(mm_map["world_center"]) + np.array(mm_map["extent"]) / 2
+        lamella = min(specimen.lamellae, key=lambda lamella: np.linalg.norm(lamella.center - mm_map["world_center"]))
+        x_min, x_max, y_min, y_max = lamella.slab
+        assert map_min[0] <= x_min and x_max <= map_max[0] and map_min[1] <= y_min and y_max <= map_max[1], f"MM map {mm_map} does not cover lamella slab {lamella.slab}"
 
 
 @pytest.mark.slow
@@ -160,13 +165,15 @@ def test_run_level4(session_dir, capsys):
     # Targets (stage coords in the MM map frame) cover target classes of the true grid in their Record field of view
     from SPACEtomo.modules.dummy.specimen import CATS
     truth, specimen = _ground_truth(grid_dir)
-    target_classes = [CATS[name] for name in ("coating", "mitos")]
+    target_classes = [CATS[name] for name in ("mitos", "nucleus")]
+    mic_params = json.loads((grid_dir / "mic_params.json").read_text())
+    fov_nm = np.sqrt(np.prod(mic_params["cam_dims"]["$array"])) * mic_params["rec_pix_size"]     # square of the Record FOV area (rotation agnostic)
     for tgt_file in tgt_files:
         # Only target blocks ("_tgt = ..."), not geo points ("_geo = ...")
         blocks = [dict(line.split(" = ", 1) for line in block.splitlines()) for block in tgt_file.read_text().strip().split("\n\n")]
         for block in [block for block in blocks if "_tgt" in block]:
             point = (float(block["stageX"]), float(block["stageY"]))
             world = np.array(point) + truth["offsets"]["MM"]
-            _, seg = specimen.render(world, (256, 256), 6144 / 256, detail=True, seg=True)   # Record FOV (6.1 µm)
+            _, seg = specimen.render(world, (256, 256), fov_nm / 256, detail=True, seg=True)
             # Half the selection threshold (0.095), allowing for the residual map offset of up to ~2 µm
             assert np.isin(seg, target_classes).mean() > 0.05, f"Target {point} ({tgt_file.name}) does not cover target classes"

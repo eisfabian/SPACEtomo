@@ -57,42 +57,51 @@ def test_dir(tmp_path):
 
 
 def make_mic_params(dest: Path):
-    """Write a mic_params.json file to dest."""
+    """Write a mic_params.json file to dest.
+
+    Matrices and tilt axis rotations are from a real Krios/K3 session (SerialEM calibrations); pixel sizes give realistic
+    fields of view on the non-square K3 camera: Record 1.4 x 1.0 µm, Focus one mag higher, View 22 x 16 µm, Search 69 x 49 µm.
+    """
     from SPACEtomo.modules import utils
 
-    rot_angle = np.radians(-84.0)
-    rotM = np.array([
-        [np.cos(rot_angle), -np.sin(rot_angle)],
-        [np.sin(rot_angle),  np.cos(rot_angle)],
-    ])
+    def rotM(angle):
+        angle = np.radians(angle)
+        return np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+
+    # Real calibrations (c2ss per pixel size, scaled to the pixel sizes used here)
+    c2ss = {"view": (np.array([[-0.00194144481793046, 0.0002074808144243434], [-0.0002074808144243434, -0.00194144481793046]]), 3.905),
+            "rec": (np.array([[-6.891629891470075e-05, 6.259731890168041e-06], [-6.259731890168041e-06, -6.891629891470075e-05]]), 0.1384),
+            "search": (np.array([[-0.0005187348579056561, 4.283008092897944e-05], [-4.283008092897944e-05, -0.0005187348579056561]]), 1.041)}
+    ss2is = {"view": np.array([[-0.8903269171714783, -0.42751845717430115], [-0.46758294105529785, 0.8783678412437439]]),
+             "rec": np.array([[-0.8787484169006348, -0.4537494480609894], [-0.4608369469642639, 0.8715442419052124]]),
+             "search": np.array([[-0.8833439946174622, -0.4521932899951935], [-0.4644295573234558, 0.8690666556358337]])}
+    areas = {   # pix size [nm], tilt axis rotation [deg], beam diameter [µm], calibration
+        "view": (3.905, 96.10000633360785, 38.2, "view"),
+        "rec": (0.25, 95.18998759663057, 1.8, "rec"),
+        "focus": (0.20, 95.18998759663057, 1.5, "rec"),
+        "search": (12.0, 94.72000115861476, 90.0, "search"),
+    }
+
     mic_params = {
         "file_name": "mic_params.json",
         "WG_image_state": "WG",
         "IM_image_state": "IM",
         "MM_image_state": ["MM1"],
-        "cam_dims": np.array([4096, 4096]),
-        "rec_cam_dims": np.array([4096, 4096]),
-        "rec_pix_size": 1.5,
-        "rec_ta_rotation": -84.0,
-        "rec_rotM": rotM,
-        "rec_beam_diameter": 9.0,       # µm (illuminated area), covers the 6.1 µm Record FOV
-        "view_pix_size": 6.0,
-        "view_ta_rotation": -84.0,
-        "view_rotM": rotM,
-        "view_beam_diameter": 36.0,
-        "view_offset": np.array([0.0, 0.0]),
-        "focus_offset": np.array([5.0, 0.0]),
-        "focus_pix_size": 6.0,
-        "search_pix_size": 12.0,
-        "search_ta_rotation": -84.0,
-        "search_rotM": rotM,
-        "search_beam_diameter": 72.0,
-        "is_limit": 15.0,
-        "IS_limit": 15.0,
-        "s2ss_matrix": np.array([[0.98, -0.17], [0.17, 0.98]]),
-        "ss2s": np.array([[0.98, -0.17], [0.17, 0.98]]),
+        "cam_dims": np.array([5760, 4092]),
+        "IS_limit": 20.0,
+        "s2ss_matrix": np.array([[-1.0323213338851929, -0.005192025564610958], [-0.005323351360857487, -1.0114827156066895]]),
         "WG_pix_size": None,
+        "IM_pix_size": None,
     }
+    for area, (pix_size, rotation, beam_diameter, calibration) in areas.items():
+        matrix, calibration_pix_size = c2ss[calibration]
+        mic_params[f"{area}_pix_size"] = pix_size
+        mic_params[f"{area}_c2ss_matrix"] = matrix * pix_size / calibration_pix_size
+        mic_params[f"{area}_ss2is_matrix"] = ss2is[calibration]
+        mic_params[f"{area}_ta_rotation"] = rotation
+        mic_params[f"{area}_rotM"] = rotM(rotation)
+        mic_params[f"{area}_beam_diameter"] = beam_diameter
+
     with open(dest, "w") as f:
         json.dump(mic_params, f, indent=4, default=utils.convertToTaggedString)
 
@@ -113,7 +122,7 @@ def make_settings(dest: Path, session_dir: Path, automation_level: int = 4, manu
         "WG_wait_for_inspection": "False",
         "manual_selection": str(manual_selection),
         "MM_wait_for_inspection": "False",
-        "target_list": "['coating', 'mitos']",
+        "target_list": "['mitos', 'nucleus']",
         "avoid_list": "['white', 'black', 'crack', 'ice']",
         "target_score_threshold": "0.095",
         "penalty_weight": "0.3",

@@ -584,7 +584,7 @@ class MicroscopeDummy:
         map_id = self.nav.newMapFromImg(label=lamella_name, template_id=None, coords=center, img_file=file, note=file.name,
                                         entry_overrides={"MapScaleMat": [str(val) for val in np.ravel(stageToPixelMatrix(pix_size))]})
 
-        self.acquired_maps.append({"name": file.stem, "nominal_center": center.tolist(), "world_center": world_center.tolist(), "pix_size": pix_size})
+        self.acquired_maps.append({"name": file.stem, "nominal_center": center.tolist(), "world_center": world_center.tolist(), "extent": extent.tolist(), "pix_size": pix_size})
         self._saveGroundTruth()
 
         BufferDummy.last_dummy_image = file
