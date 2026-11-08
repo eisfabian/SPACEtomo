@@ -109,7 +109,7 @@ class BufferDummy:
                 if isinstance(self.last_dummy_image, Path) and self.last_dummy_image.exists():
                     with mrcfile.open(self.last_dummy_image) as mrc:
                         self.img = np.flip(mrc.data, axis=0)
-                        self.pix_size = mrc.voxel_size.x / 10 # nm/px
+                        self.pix_size = float(mrc.voxel_size.x) / 10 # nm/px
 
                     log(f"#DUMMY: Loaded image from {self.last_dummy_image}")
                 elif isinstance(self.last_dummy_image, np.ndarray):
@@ -186,7 +186,7 @@ class BufferDummy:
                     map_file = self.nav.items[self.nav_id].entries["MapFile"][0]
                     with mrcfile.open(map_file) as mrc:
                         self.img = np.flip(mrc.data, axis=0)
-                        self.pix_size = mrc.voxel_size.x / 10 # nm/px
+                        self.pix_size = float(mrc.voxel_size.x) / 10 # nm/px
                     log(f"#DUMMY: Loaded buffer image from {map_file}!")
 
                     log(f"DEBUG: Min val: {np.min(self.img)}, Max val: {np.max(self.img)}")
@@ -247,7 +247,7 @@ class BufferDummy:
         file_path = Path(file_path)
         if file_path.exists():
             with mrcfile.open(file_path) as mrc:
-                self.pix_size = mrc.voxel_size.x / 10  # nm/px
+                self.pix_size = float(mrc.voxel_size.x) / 10  # nm/px
                 self.shape = np.array([mrc.header.nx, mrc.header.ny], dtype=int)
                 self.binning = 1
                 self.dose = 0
