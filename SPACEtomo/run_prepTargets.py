@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/07/13
 # Revision:     v1.2
-# Last Change:  2026/11/06: fixed crash when collecting new point files
+# Last Change:  2026/11/14: fixed endless wait for predictions and repeated setup of maps with multiple target areas
+#               2026/11/06: fixed crash when collecting new point files
 #               2024/09/04: converted settings to configparser
 #               2024/08/21: made callable
 #               2024/08/20: adjusted to refactor
@@ -37,6 +38,35 @@ from SPACEtomo.modules.mod_wg import WGModel
 from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.tgt import PACEArea
 
+def getAreaName(point_file):
+    """Returns the target area name of a point file (map name, with _A# suffix if the map has several target areas)."""
+
+    map_name = point_file.name.split("_points")[0]
+    map_areas = sorted(point_file.parent.glob(map_name + "_points*.json"))
+    if len(map_areas) > 1:
+        return map_name + f"_A{map_areas.index(point_file) + 1}"
+    return map_name
+
+def findUnprocessedPointFiles(map_dir, cur_dir):
+    """Returns point files whose target area has no targets file yet."""
+
+    return [point_file for point_file in sorted(map_dir.glob("*_points*.json")) if not (cur_dir / (getAreaName(point_file) + "_tgts.txt")).exists()]
+
+def waitForNewPointFiles(map_dir, known_point_files, update_function=None, interval=60):
+    """Waits until new point files appear or no more maps are being processed. Returns the new point files."""
+
+    while True:
+        # Check pending maps before looking for point files, so a point file written in between is not missed
+        mm_list, seg_list, _ = space_ext.monitorFiles(map_dir)
+        new_point_files = [point_file for point_file in sorted(map_dir.glob("*_points*.json")) if point_file not in known_point_files]
+        if new_point_files or (not mm_list and not seg_list):
+            return new_point_files
+
+        log("Waiting for next prediction before setting up targets...")
+        time.sleep(interval)
+        if update_function:
+            update_function()
+
 def main():
     CUR_DIR = utils.getCurDir()
 
@@ -64,15 +94,9 @@ def main():
     if not EXTERNAL_RUN:
         space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)
 
-    # Check for unprocessed point files
+    # Check for unprocessed point files (targets file is named by target area)
     point_files = sorted(MAP_DIR.glob("*_points*.json"))
-    tgt_files = sorted(CUR_DIR.glob("*tgts.txt"))
-
-    unprocessed_point_files = []
-    for point_file in point_files:
-        map_name = point_file.name.split("_points")[0]
-        if map_name not in [tgt_file.name.split("_tgts")[0] for tgt_file in tgt_files]:
-            unprocessed_point_files.append(point_file)
+    unprocessed_point_files = findUnprocessedPointFiles(MAP_DIR, CUR_DIR)
 
     # Check for unprocessed maps
     mm_list, seg_list, wg_list  = space_ext.monitorFiles(MAP_DIR)
@@ -84,29 +108,14 @@ def main():
     if num_acq == 0 and len(unprocessed_point_files) == 0:
         # Check if there will be further point files generated
         if len(mm_list) > 0 or len(seg_list) > 0:
-            # Wait for another segmentation to be processed
-            start_len_seg = len(seg_list)
-            while len(seg_list) >= start_len_seg:
-                log("Waiting for next prediction before setting up targets...")
-                time.sleep(60)
-                if not EXTERNAL_RUN:
-                    space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)
-                mm_list, seg_list, wg_list  = space_ext.monitorFiles(MAP_DIR)
-
-            # Get point files that were not found previously
-            point_files_new = sorted(MAP_DIR.glob("*_points*.json"))
-            unprocessed_point_files = [file for file in point_files_new if file not in point_files]
+            # Wait for the next target selection
+            unprocessed_point_files = waitForNewPointFiles(MAP_DIR, point_files,
+                                                           update_function=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else None)
 
     # Set up targets for unprocessed point_files
     for point_file in unprocessed_point_files:
         map_name = point_file.name.split("_points")[0]
-
-        # Check for map name areas to determine area_name
-        map_areas = sorted(MAP_DIR.glob(map_name + "_points*.json"))
-        if len(map_areas) > 1:
-            area_name = map_name + f"_A{map_areas.index(point_file) + 1}"
-        else:
-            area_name = map_name
+        area_name = getAreaName(point_file)
 
         # Check if targets were inspected
         if settings["MM_wait_for_inspection"]:
