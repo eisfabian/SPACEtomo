@@ -7,7 +7,8 @@
 # Author:       Fabian Eisenstein / Claude
 # Created:      2026/11/08
 # Revision:     v1.4
-# Last Change:  2026/11/08: created
+# Last Change:  2026/11/14: alignment of same-size images (padded reference), binned correlation
+#               2026/11/08: created
 # ===================================================================
 #
 # Geometry (see specimen.py): stage and specimen axes coincide; camera columns run along +x and rows along -y,
@@ -331,17 +332,21 @@ class Sim:
         """Cross-correlates A with the reference at the coarser pixel size; stores the shift like ReportAlignShift."""
 
         cur, ref = self.buffers["A"], self.buffers[ref_letter]
-        pix_size = max(cur.pix_size, ref.pix_size)
+        # Correlate binned images (at most ~1k pixels across the smaller image) to keep it fast
+        extent = min(max(cur.img.shape) * cur.pix_size, max(ref.img.shape) * ref.pix_size)
+        pix_size = max(cur.pix_size, ref.pix_size, extent / 1024)
         img = _resample(cur.img.astype(np.float32), pix_size / cur.pix_size)
         ref_img = _resample(ref.img.astype(np.float32), pix_size / ref.pix_size)
 
         sign = 1
         if img.shape[0] > ref_img.shape[0] or img.shape[1] > ref_img.shape[1]:
             img, ref_img, sign = ref_img, img, -1
+        # Pad the reference with its mean so images of the same size can be shifted against each other
         search = int(max_shift_um * 1000 / pix_size)
-        r0 = max(0, (ref_img.shape[0] - img.shape[0]) // 2 - search)
-        c0 = max(0, (ref_img.shape[1] - img.shape[1]) // 2 - search)
-        region = ref_img[r0: r0 + img.shape[0] + 2 * search, c0: c0 + img.shape[1] + 2 * search]
+        padded = np.pad(ref_img, search, constant_values=ref_img.mean())
+        r0 = (ref_img.shape[0] - img.shape[0]) // 2 - search         # region start in reference coords (may be in the padding)
+        c0 = (ref_img.shape[1] - img.shape[1]) // 2 - search
+        region = padded[r0 + search: r0 + search + img.shape[0] + 2 * search, c0 + search: c0 + search + img.shape[1] + 2 * search]
         cc = match_template(region, img)
         peak_row, peak_col = np.unravel_index(np.argmax(cc), cc.shape)
         d_row = r0 + peak_row + img.shape[0] / 2 - ref_img.shape[0] / 2

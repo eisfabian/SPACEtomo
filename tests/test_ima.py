@@ -176,3 +176,103 @@ def test_align_rerun_detects_completed_alignment(tmp_path, make_nav, display_lab
     rerun = IMAlignment(tmp_path, tmp_path, FakeScope(), nav, FakeParams(), WG_model=FakeWGModel())
     assert len(rerun.position_ids) == 1
     assert not rerun.checkNecessity()
+
+
+# --- Realignment of a reloaded grid (real classes against the simulated microscope) ---
+
+@pytest.fixture
+def reloaded_grid(tmp_path):
+    """Grid with a WG item and one ROI (PP1) at a lamella; returns a function that "reloads" the grid with a given displacement.
+
+    with_im_map=False leaves PP1 as polygon like after a level 1 run, with_roi=False gives no ROI at all.
+    """
+
+    import serialem as sem
+    from SPACEtomo.modules.buf import Buffer
+    from SPACEtomo.modules.dummy.sim import sim
+    from SPACEtomo.modules.scope import Microscope
+
+    def _make(with_roi=True, with_im_map=True):
+        sem.SetDirectory(str(tmp_path))
+        nav = Navigator(tmp_path / "G01.nav")
+        Buffer.nav = nav
+        microscope = Microscope()
+
+        wg_id = nav.newPoint(np.zeros(3), label="WG")         # stands in for the WG map (only has to stay in place; saves a K3 record)
+
+        roi_stage = sim.getSpecimen().lamellae[0].center - sim.specimen.offsets["IM"]     # IM image centered on the lamella
+        if with_roi and with_im_map:
+            microscope.changeImagingState("IM", low_dose_expected=False)
+            microscope.moveStage(roi_stage)
+            microscope.record()
+            nav.newMap(buffer=Buffer("A"), img_file=tmp_path / "G01_PP1_IM.mrc", label="PP1")
+        elif with_roi:
+            nav.newPolygon([roi_stage[0] + dx for dx in (-5, -5, 5, 5, -5)], [roi_stage[1] + dy for dy in (-5, 5, 5, -5, -5)], 0.0, label="PP1")
+        nav.pull()
+
+        microscope.changeImagingState("IM", low_dose_expected=False)
+        microscope.moveStage((0.0, 0.0))
+
+        def reload(displacement):
+            """Specimen moved relative to the stage: what was imaged at stage s is now at s - displacement."""
+            sim.specimen.offsets = {key: val + np.array(displacement) for key, val in sim.specimen.offsets.items()}
+
+        return microscope, nav, wg_id, reload
+    return _make
+
+
+def _stages(nav):
+    return {item.label: item.stage[:2].copy() for item in nav.items}
+
+
+@pytest.mark.parametrize("displacement", [(-8.0, 5.0)])
+def test_realignReloadedGrid_shifts_items_onto_specimen(reloaded_grid, displacement):
+    """Displacement beyond the convergence threshold: the stage is moved once and the alignment is verified."""
+
+    microscope, nav, wg_id, reload = reloaded_grid()
+    before = _stages(nav)
+    reload(displacement)
+
+    shift = ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id])
+
+    after = _stages(nav)
+    assert np.allclose(shift, -np.array(displacement), atol=0.5)
+    assert np.allclose(after["PP1"], before["PP1"] - displacement, atol=0.5)
+    assert np.allclose(after["WG"], before["WG"])
+
+
+def test_realignReloadedGrid_without_rois(reloaded_grid):
+    """No ROI on the grid (e.g. no lamella found): keep the whole grid realignment instead of crashing."""
+
+    microscope, nav, wg_id, reload = reloaded_grid(with_roi=False)
+    before = _stages(nav)
+    reload((3.0, -2.0))
+
+    assert ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id]) is None
+    assert all(np.allclose(_stages(nav)[label], stage) for label, stage in before.items())
+
+
+def test_realignReloadedGrid_skips_rois_without_im_map(reloaded_grid):
+    """After a level 1 run, PP items are polygons, which cannot be loaded as reference."""
+
+    microscope, nav, wg_id, reload = reloaded_grid(with_im_map=False)
+    before = _stages(nav)
+    reload((3.0, -2.0))
+
+    assert ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id]) is None
+    assert all(np.allclose(_stages(nav)[label], stage) for label, stage in before.items())
+
+
+def test_realignReloadedGrid_ignores_failed_alignment(reloaded_grid, monkeypatch):
+    """A cross-correlation that does not converge (e.g. ROI lost or covered in ice) must not shift the items."""
+
+    import serialem as sem
+
+    microscope, nav, wg_id, reload = reloaded_grid()
+    before = _stages(nav)
+    monkeypatch.setattr(sem, "AlignTo", lambda *args: None)
+    monkeypatch.setattr(sem, "ReportAlignShift", lambda: (1000.0, 1000.0, 0.0, 0.0, 10000.0, 10000.0))   # 10 µm off after every move
+
+    assert ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id], max_iterations=2) is None
+    assert all(np.allclose(_stages(nav)[label], stage) for label, stage in before.items())
+    assert np.allclose(microscope.stage[:2], before["PP1"])

@@ -148,3 +148,21 @@ def test_image_properties_sets_buffer_tick_time():
     sem.ImageProperties("A")
 
     assert tick_b < sem.GetVariable("imageTickTime")
+
+
+@pytest.mark.parametrize("true_shift", [(-8.0, 5.0)])
+def test_AlignTo_same_mag_reports_specimen_shift(true_shift):
+    """Shift of the image content in A relative to a reference of the same size and mag (e.g. a previous IM map)."""
+
+    from SPACEtomo.modules.dummy.sim import sim
+    sem.GoToImagingState("IM")
+    center = sim.getSpecimen().lamellae[0].center - sim.specimen.offsets["IM"]
+    sem.MoveStageTo(*center)
+    sem.R()
+    sem.Copy("A", "O")
+    sem.MoveStageTo(*(center + true_shift))
+    sem.R()
+
+    sem.AlignTo("O", 1)
+
+    assert np.allclose(np.array(sem.ReportAlignShift()[4:6]) / 1000, true_shift, atol=0.2)

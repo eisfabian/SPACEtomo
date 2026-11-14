@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.4
-# Last Change:  2026/11/08: DUMMY mode runs the real classes with the simulated microscope
+# Last Change:  2026/11/14: fixed realignment of reloaded grid without IM maps
+#               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/02/22: added support for custom ROI names
 #               2025/02/06: outsourced MM map acquisition to mma.py
@@ -84,7 +85,7 @@ from SPACEtomo.modules.scope import Microscope, ImagingParams
 from SPACEtomo.modules.nav import Navigator
 from SPACEtomo.modules.buf import Buffer
 from SPACEtomo.modules.mod_wg import WGModel, Boxes
-from SPACEtomo.modules.ima import IMAlignment
+from SPACEtomo.modules.ima import IMAlignment, realignReloadedGrid
 from SPACEtomo.modules.mma import MMMAcquisition
 from SPACEtomo.modules.tgt import PACEArea
 import SPACEtomo.modules.utils as utils
@@ -200,17 +201,7 @@ def main():
                     # Use image alignment on IM image
                     microscope.changeImagingState(settings["IM_image_state"], low_dose_expected=False)
                     microscope.changeC2Aperture(config.c2_apertures[1]) # Insert C2 aperture for IM state
-                    im_nav_ids = nav.searchByEntry("label", "PP", partial=True)     # Preliminary position/polygon (PP)
-                    for nav_id in im_nav_ids:
-                        log (f"Realigning IM image {nav.items[nav_id].label}...")
-                        microscope.moveStage(nav.items[nav_id].stage)
-                        im_buf = Buffer("O", nav_id=nav_id)
-                        microscope.record()
-                        new_im_buf = Buffer("A")
-                        _, ss_shift = new_im_buf.alignTo(im_buf, avoid_image_shift=True)
-                        stage_shift = microscope.getMatrices()["ss2s"] @ ss_shift
-                        break # TODO: possibly add check for success
-                    nav.shiftItems(-stage_shift, skip_item_ids=[wg_nav_id])
+                    realignReloadedGrid(microscope, nav, skip_item_ids=[wg_nav_id], label_prefix="PP")
 
             # Save WG map
             wg_map = Buffer(nav_id=wg_nav_id)

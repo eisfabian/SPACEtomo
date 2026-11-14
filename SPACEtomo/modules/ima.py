@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/10
 # Revision:     v1.4
-# Last Change:  2026/11/08: removed dummy class shadowing
+# Last Change:  2026/11/14: added realignment of reloaded grid to IM maps (moved from run.py)
+#               2026/11/08: removed dummy class shadowing
 #               2026/11/06: fixed shifting all nav items when aligning the last ROI
 #               2026/11/06: fixed IM map losing PP label with custom ROI names
 #               2026/02/22: added support for custom ROI names
@@ -309,3 +310,39 @@ class IMAlignment:
         ali_data = {"position_ids": self.position_ids, "offsets": self.offsets}
         with open(self.cur_dir / "IM_alignment.json", "w") as f:
             json.dump(ali_data, f, indent=4, default=utils.convertToTaggedString)
+
+
+def realignReloadedGrid(microscope: Microscope, nav: Navigator, skip_item_ids=(), label_prefix="PP", threshold=2, max_iterations=3):
+    """Refines the realignment of a reloaded grid by aligning to IM maps of a previous run and shifts nav items accordingly.
+
+    Returns the applied shift [microns] or None if no IM map could be aligned.
+    """
+
+    # Only ROIs that went through IM alignment are maps (before that, PP items are polygons)
+    im_map_ids = [nav_id for nav_id in nav.searchByEntry("label", label_prefix, partial=True) if nav.items[nav_id].entries["Type"] == ["2"]]
+    if not im_map_ids:
+        log(f"WARNING: No IM maps found to refine the grid realignment. Please check the realignment before starting data collection.")
+        return None
+
+    for nav_id in im_map_ids:
+        log(f"Realigning to IM map {nav.items[nav_id].label}...")
+        microscope.moveStage(nav.items[nav_id].stage)
+        ref_buffer = Buffer("O", nav_id=nav_id)
+        stage_initial = microscope.stage
+
+        # Iterate to verify the alignment: moving the stage by the measured shift has to bring the image onto the reference
+        for _ in range(max_iterations):
+            microscope.record()
+            _, ss_shift = Buffer("A").alignTo(ref_buffer, avoid_image_shift=True)
+            stage_shift = microscope.getMatrices()["ss2s"] @ ss_shift
+            if np.linalg.norm(stage_shift) <= threshold:
+                shift = microscope.stage[:2] - stage_initial[:2] - stage_shift
+                nav.shiftItems(shift, skip_item_ids=list(skip_item_ids))
+                return shift
+            microscope.moveStage(-stage_shift, relative=True)
+
+        log(f"WARNING: Alignment to IM map {nav.items[nav_id].label} did not converge.")
+        microscope.moveStage(stage_initial)
+
+    log(f"WARNING: Grid realignment could not be refined using IM maps. Please check the realignment before starting data collection.")
+    return None
