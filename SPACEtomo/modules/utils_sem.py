@@ -109,9 +109,12 @@ def getImagingStates():
         if error > 0:
             break # No more imaging states available
 
-        # Get pixel size
-        pixel_size = sem.CameraProperties(camera, mag_index)[4]
-        
+        # SerialEM reports numbers as floats, but CameraProperties only accepts ints
+        index, low_dose, camera, mag_index = int(index), int(low_dose), int(camera), int(mag_index)
+
+        # Get pixel size (camera 0 means the state's camera is not available)
+        pixel_size = sem.CameraProperties(camera, mag_index)[4] if camera > 0 else None
+
         imaging_states.append((index, name, low_dose, camera, mag_index, pixel_size))
 
     return imaging_states

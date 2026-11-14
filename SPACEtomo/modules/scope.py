@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/11/08: parameter queries also run in DUMMY mode (simulated microscope)
+# Last Change:  2026/11/14: fixed name of unnamed JEOL cartridges (float ID)
+#               2026/11/08: parameter queries also run in DUMMY mode (simulated microscope)
 #               2026/11/07: fixed Low Dose area being stored as number after changing imaging state
 #               2026/11/06: aperture commands try integer id first and fall back to letter
 #               2026/07/17: added mag_index property + per-area *_mag_index params (View/Rec/Focus/Search)
@@ -605,14 +606,14 @@ class Microscope:
                     if grid_name and grid_name != "!NONAME!" and grid_name != "\\":
                         self.autoloader[index] = grid_name
                         log(f"DEBUG: JEOL inventory index {index}, cart_id {cartridge_id}: {grid_name} (location={location}, slot={slot_num})")
-                        if location == 3 and not self.loaded_grid:  # On stage
-                            log(f"DEBUG: Grid [{grid_name}] in inventory index {index} is currently on the stage.")
-                            self.loaded_grid = index
                     else:
                         # Generate default name if not provided
-                        default_name = f"Grid{cartridge_id:03d}"
+                        default_name = f"Grid{int(cartridge_id):03d}"      # SerialEM reports the ID as float
                         self.autoloader[index] = default_name
                         log(f"DEBUG: JEOL inventory index {index}, cart_id {cartridge_id}: {default_name} (no user name provided)")
+                    if location == 3 and not self.loaded_grid:  # On stage (named or not)
+                        log(f"DEBUG: Grid [{self.autoloader[index]}] in inventory index {index} is currently on the stage.")
+                        self.loaded_grid = index
                 
                 index += 1
         else:
