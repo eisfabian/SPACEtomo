@@ -7,6 +7,7 @@
 # Created:      2023/07/13
 # Revision:     v1.2
 # Last Change:  2026/11/14: fixed endless wait for predictions and repeated setup of maps with multiple target areas
+#               2026/11/14: wait for inspection instead of ending acquisition, maps without targets count as processed
 #               2026/11/06: fixed crash when collecting new point files
 #               2024/09/04: converted settings to configparser
 #               2024/08/21: made callable
@@ -28,6 +29,7 @@
 # ===================================================================
 
 import time
+import json
 from SPACEtomo.modules.utils import log
 import SPACEtomo.modules.ext as space_ext
 import SPACEtomo.modules.utils as utils
@@ -47,22 +49,48 @@ def getAreaName(point_file):
         return map_name + f"_A{map_areas.index(point_file) + 1}"
     return map_name
 
-def findUnprocessedPointFiles(map_dir, cur_dir):
-    """Returns point files whose target area has no targets file yet."""
+def hasTargets(point_file):
+    """Checks if point file contains targets (maps without targets get an empty point file)."""
 
-    return [point_file for point_file in sorted(map_dir.glob("*_points*.json")) if not (cur_dir / (getAreaName(point_file) + "_tgts.txt")).exists()]
+    try:
+        with open(point_file, "r", encoding="utf-8") as f:
+            area = json.load(f, object_hook=utils.revertTaggedString)
+    except (OSError, ValueError):
+        return True     # Unreadable or not completely written yet: leave it to the target setup
+    return len(area.get("points", [])) > 0
 
-def waitForNewPointFiles(map_dir, known_point_files, update_function=None, interval=60):
-    """Waits until new point files appear or no more maps are being processed. Returns the new point files."""
+def isInspected(point_file, wait_for_inspection):
+    """Checks if targets of the point file's map were inspected (if inspection is required)."""
+
+    if not wait_for_inspection:
+        return True
+    map_name = point_file.name.split("_points")[0]
+    return (point_file.parent / (map_name + "_inspected.txt")).exists()
+
+def findUnprocessedPointFiles(map_dir, cur_dir, wait_for_inspection=False):
+    """Returns point files whose target area has no targets file yet.
+
+    Empty point files (map without targets) only count as processed once inspected, as manual selection starts with empty point files.
+    """
+
+    return [point_file for point_file in sorted(map_dir.glob("*_points*.json"))
+            if not (cur_dir / (getAreaName(point_file) + "_tgts.txt")).exists() and (hasTargets(point_file) or not isInspected(point_file, wait_for_inspection))]
+
+def waitForPointFiles(map_dir, cur_dir, wait_for_inspection=False, update_function=None, interval=60):
+    """Waits until point files are ready for target setup or no more maps are processed or inspected. Returns the ready point files."""
 
     while True:
         # Check pending maps before looking for point files, so a point file written in between is not missed
         mm_list, seg_list, _ = space_ext.monitorFiles(map_dir)
-        new_point_files = [point_file for point_file in sorted(map_dir.glob("*_points*.json")) if point_file not in known_point_files]
-        if new_point_files or (not mm_list and not seg_list):
-            return new_point_files
+        unprocessed_point_files = findUnprocessedPointFiles(map_dir, cur_dir, wait_for_inspection)
+        ready_point_files = [point_file for point_file in unprocessed_point_files if isInspected(point_file, wait_for_inspection)]
+        if ready_point_files or not (mm_list or seg_list or unprocessed_point_files):
+            return ready_point_files
 
-        log("Waiting for next prediction before setting up targets...")
+        if unprocessed_point_files:
+            log("Waiting for targets to be inspected by operator...")
+        else:
+            log("Waiting for next prediction before setting up targets...")
         time.sleep(interval)
         if update_function:
             update_function()
@@ -95,22 +123,15 @@ def main():
         space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)
 
     # Check for unprocessed point files (targets file is named by target area)
-    point_files = sorted(MAP_DIR.glob("*_points*.json"))
-    unprocessed_point_files = findUnprocessedPointFiles(MAP_DIR, CUR_DIR)
-
-    # Check for unprocessed maps
-    mm_list, seg_list, wg_list  = space_ext.monitorFiles(MAP_DIR)
+    unprocessed_point_files = findUnprocessedPointFiles(MAP_DIR, CUR_DIR, settings["MM_wait_for_inspection"])
 
     # Check for areas still to be acquired
     num_acq = len(nav.searchByEntry("Acquire", ["1"]))
 
-    # Check if collection would stop
-    if num_acq == 0 and len(unprocessed_point_files) == 0:
-        # Check if there will be further point files generated
-        if len(mm_list) > 0 or len(seg_list) > 0:
-            # Wait for the next target selection
-            unprocessed_point_files = waitForNewPointFiles(MAP_DIR, point_files,
-                                                           update_function=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else None)
+    # If collection would stop, wait for maps still being processed or inspected
+    if num_acq == 0 and not any(isInspected(point_file, settings["MM_wait_for_inspection"]) for point_file in unprocessed_point_files):
+        unprocessed_point_files = waitForPointFiles(MAP_DIR, CUR_DIR, settings["MM_wait_for_inspection"],
+                                                    update_function=(lambda: space_ext.updateQueue(MAP_DIR, WG_model, MM_model, imaging_params, tgt_params)) if not EXTERNAL_RUN else None)
 
     # Set up targets for unprocessed point_files
     for point_file in unprocessed_point_files:
@@ -118,12 +139,7 @@ def main():
         area_name = getAreaName(point_file)
 
         # Check if targets were inspected
-        if settings["MM_wait_for_inspection"]:
-            inspected = (MAP_DIR / (map_name + "_inspected.txt")).exists()
-        else:
-            inspected = True
-
-        if not inspected:
+        if not isInspected(point_file, settings["MM_wait_for_inspection"]):
             log("")
             log(f"WARNING: {map_name} targets are still waiting for inspection! Skipping...")
             continue
