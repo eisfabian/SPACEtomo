@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
 # Revision:     v1.3
-# Last Change:  2026/07/17: stamp virtual maps with View mag/ConSet/scale so SerialEM treats them as View
+# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+#               2026/07/17: stamp virtual maps with View mag/ConSet/scale so SerialEM treats them as View
 #               2026/07/10: scale virtual _view.mrc maps to View pixel size for non-View montages
 #               2025/04/08: added tracking centering upon splitting areas
 #               2025/01/30: added rectangular search threshold, small fixes
@@ -652,6 +653,22 @@ class PACEArea(TargetArea):
         log("ERROR: Making track is not fully implemented yet.")
         #TODO deal with nav changes
 
+    def findTemplateId(self, nav: Navigator, map_name):
+        """Returns nav ID of the map the targets were selected on (from its buffer, otherwise by note)."""
+
+        if self.nav_id is not None:
+            return self.nav_id
+
+        # Try finding map using note (notes can look like: Sec 0 - map_name.mrc)
+        log(f"DEBUG: Could not find template map {map_name}.mrc in navigator. Trying to find by note...")
+        template_ids = nav.searchByEntry("Note", f"{map_name}.mrc", partial=True)
+        if not template_ids:
+            log(f"ERROR: Could not find template map {map_name}.mrc in navigator!")
+            return None
+        elif len(template_ids) > 1:
+            log(f"WARNING: Found multiple entries for template map {map_name}.mrc in navigator!")
+        return template_ids[0]
+
     def prepareForAcquisition(self, map_file, nav: Navigator, grid_name=""):
         """Prepares virtual maps and navigator for acquisition."""
 
@@ -671,19 +688,9 @@ class PACEArea(TargetArea):
                 map_name = area_name = map_file.stem
 
         # Get lamella montage nav_id for template
-        #template_id = nav.getIDfromNote(map_name + ".mrc") # <= could not deal with Notes like: Sec 0 - map_name.mrc
-        #template_id = nav.searchByEntry("Note", f"{map_name}.mrc", partial=True)
-        template_id = self.nav_id
-        if not template_id:
-            # Try finding map using note
-            log(f"DEBUG: Could not find template map {map_name}.mrc in navigator. Trying to find by note...")
-            template_id = nav.searchByEntry("Note", f"{map_name}.mrc", partial=True)
-            if not template_id:
-                log(f"ERROR: Could not find template map {map_name}.mrc in navigator!")
-                return
-            elif len(template_id) > 1:
-                log(f"WARNING: Found multiple entries for template map {map_name}.mrc in navigator!")
-            template_id = template_id[0]
+        template_id = self.findTemplateId(nav, map_name)
+        if template_id is None:
+            return
 
         # Convert to buffer pix size
         self.scaleCoordsBuffer()

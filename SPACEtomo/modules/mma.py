@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/02/06
 # Revision:     v1.4
-# Last Change:  2026/11/08: removed dummy class shadowing
+# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+#               2026/11/08: removed dummy class shadowing
 #               2026/02/22: added support for custom ROI names
 #               2025/02/12: added geo estimation
 #               2025/02/06: outsourcing from run.py
@@ -140,7 +141,7 @@ class MMMAcquisition:
 
         # Check if map already exists in nav        
         map_id = self.nav.getIDfromNote(self.map_file.name, warn=False)
-        if map_id:
+        if map_id is not None:
             log(f"NOTE: Map {self.map_name} already exists.")
 
             # Check for reacquisition
@@ -217,7 +218,7 @@ class MMMAcquisition:
         """Realigns View to IM reference."""
 
         # Check if map already exists in nav        
-        if self.nav.getIDfromNote(self.map_file.name, warn=False):
+        if self.nav.getIDfromNote(self.map_file.name, warn=False) is not None:
             log(f"DEBUG: Skipping MM realignment since map already exists.")
             return
 

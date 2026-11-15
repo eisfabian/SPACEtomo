@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/11/08: rescaleImage keeps intensities (counts wrapped around), saved pngs are always 8 bit
+# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+#               2026/11/08: rescaleImage keeps intensities (counts wrapped around), saved pngs are always 8 bit
 #               2026/11/07: fixed getCropImage padding when crop exceeds both map edges
 #               2026/02/22: added support for custom ROI names
 #               2025/03/04: added mdoc ingestion with file
@@ -141,7 +142,7 @@ class Buffer:
 
         if timestamp != self.timestamp or reload:
             # Reload from map if buffer was overwritten
-            if self.nav_id:
+            if self.nav_id is not None:
                 sem.LoadOtherMap(self.nav_id + 1, self.buf)
             # Or place image in buffer
             elif self.img is not None:
@@ -364,7 +365,7 @@ class Buffer:
             scaling_factor = 1
 
         # Get additional data from nav
-        if self.nav and self.nav_id:
+        if self.nav and self.nav_id is not None:
             meta_data["stage_coords"] = np.array(self.nav.items[self.nav_id].entries["StageXYZ"])
             if "MapScaleMat" in self.nav.items[self.nav_id].entries.keys():
                 matrix = np.array([float(val) for val in self.nav.items[self.nav_id].entries["MapScaleMat"]]).reshape((2, 2))
@@ -464,7 +465,7 @@ class Buffer:
             # Add polygon
             if self.nav is not None:
                 # Get z coordinate
-                if self.nav_id:
+                if self.nav_id is not None:
                     stage_z = self.nav.items[self.nav_id].stage[2]
                 else:
                     stage_z = 0.0
