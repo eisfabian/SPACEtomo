@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2026/11/08: removed DUMMY replacements and mock save callback (the mock owns the navigator)
+# Last Change:  2026/11/17: fixed SerialEM index of new items, nav file written via temp file
+#               2026/11/08: removed DUMMY replacements and mock save callback (the mock owns the navigator)
 #               2026/11/07: polygon stage ignores closing point
 #               2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
 #               2024/12/23: Updated shiftItems function to not use sem
@@ -438,8 +439,11 @@ class Navigator:
         for item in self.items:
             text += item.getBlock()
 
-        with open(file, "w") as f:
+        # Write to temp file first to not leave a truncated nav file when writing fails
+        temp_file = file.with_name(file.name + ".tmp")
+        with open(temp_file, "w") as f:
             f.write(text)
+        temp_file.replace(file)
 
     @serialem_check
     def loadOld(self):
@@ -524,11 +528,12 @@ class Navigator:
             sem.SaveNavigator(str(self.file))
             sem.CloseNavigator()
         
-        # Reset attributes and reload
-        self.writeToFile()
-
-        if SERIALEM:
-            sem.ReadNavFile(str(self.file))
+        # Write instance to file and reopen in SerialEM (also when writing failed to not leave SerialEM without navigator)
+        try:
+            self.writeToFile()
+        finally:
+            if SERIALEM:
+                sem.ReadNavFile(str(self.file))
 
     def setMapIDCounter(self):
         """Sets map ID counter to highest custom map ID in navigator."""
@@ -631,7 +636,7 @@ class Navigator:
             else:
                 log(f"ERROR: No image file or buffer was given to create map from!")
 
-        nav_item = NavItem(len(self), label=label)
+        nav_item = NavItem(len(self) + 1, label=label)
         nav_item.createMap(template, coords, img_file, self.map_id_counter, note, entry_overrides=entry_overrides)
         self.map_id_counter += 1
 
@@ -648,7 +653,7 @@ class Navigator:
         if not label:
             label = str(len(self))
 
-        nav_item = NavItem(len(self), label=label)
+        nav_item = NavItem(len(self) + 1, label=label)
         nav_item.createPoint(coords, self.map_id_counter, group_id=group_id, note=note)
         self.map_id_counter += 1
         nav_item.entries["Color"] = [str(color_id)]
@@ -681,7 +686,7 @@ class Navigator:
         if not label:
             label = str(len(self))
 
-        nav_item = NavItem(len(self), label=label)
+        nav_item = NavItem(len(self) + 1, label=label)
         nav_item.createPolygon(pts_x, pts_y, z, map_id=self.map_id_counter, note=note)
         self.map_id_counter += 1
 
