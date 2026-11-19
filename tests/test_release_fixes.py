@@ -266,6 +266,7 @@ def test_prepTargets_picks_up_new_point_files(monkeypatch, tmp_path):
             pass
         def prepareForAcquisition(self, *args):
             set_up.append(self.point_file.name)
+            return True
         def getTargetsInfo(self, area_name):
             return [], [], {}
 

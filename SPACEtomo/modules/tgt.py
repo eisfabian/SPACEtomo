@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/07
 # Revision:     v1.3
-# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+# Last Change:  2026/11/19: prepareForAcquisition reports failure
+#               2026/11/14: fixed map at nav index 0 treated as missing
 #               2026/07/17: stamp virtual maps with View mag/ConSet/scale so SerialEM treats them as View
 #               2026/07/10: scale virtual _view.mrc maps to View pixel size for non-View montages
 #               2025/04/08: added tracking centering upon splitting areas
@@ -670,7 +671,7 @@ class PACEArea(TargetArea):
         return template_ids[0]
 
     def prepareForAcquisition(self, map_file, nav: Navigator, grid_name=""):
-        """Prepares virtual maps and navigator for acquisition."""
+        """Prepares virtual maps and navigator for acquisition. Returns False if the area could not be set up."""
 
         # Check if map_file contains area
         if grid_name:
@@ -690,7 +691,7 @@ class PACEArea(TargetArea):
         # Get lamella montage nav_id for template
         template_id = self.findTemplateId(nav, map_name)
         if template_id is None:
-            return
+            return False
 
         # Convert to buffer pix size
         self.scaleCoordsBuffer()
@@ -712,7 +713,7 @@ class PACEArea(TargetArea):
                 log("ERROR: Cannot convert a non-View montage to View virtual maps because the View mag index is "
                     "unavailable (requires SerialEM 4.3+ for GetLowDoseAreaParams). "
                     "Please use a View montage map or upgrade to SerialEM 4.3+.")
-                return
+                return False
 
             template = nav.items[template_id]
             view_scale_mat = (np.array(template.entries["MapScaleMat"], dtype=float).reshape((2, 2))
@@ -753,7 +754,9 @@ class PACEArea(TargetArea):
         nav.items[track_id].changeAcquire(1)
         nav.items[track_id].changeNote(area_name + "_tgts.txt")
 
-        nav.newPointGroup(self.geo_points_stage, "geo", color_id=5, stage_z=nav.items[template_id].stage[2])    
+        nav.newPointGroup(self.geo_points_stage, "geo", color_id=5, stage_z=nav.items[template_id].stage[2])
+
+        return True
 
     def getTargetsInfo(self, area_name):
         """Returns target area data in dicts."""

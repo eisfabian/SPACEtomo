@@ -5,7 +5,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2026/11/08: DUMMY mode runs the real classes with the simulated microscope
+# Last Change:  2026/11/19: no targets file when target setup failed
+#               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/07/10: warn if manual map pixel size matches neither View nor Search mode
 #               2025/03/21: fixed map naming
@@ -238,7 +239,9 @@ def main():
                 target_area.checkISLimit()
 
                 # Set up navigator and create virtual maps
-                target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav)
+                if not target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav):
+                    log(f"ERROR: Targets on {area_name} could not be set up for acquisition! Skipping...")
+                    continue
 
                 # Save target file
                 targets, geo_points, tgt_settings = target_area.getTargetsInfo(area_name)

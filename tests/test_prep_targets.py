@@ -125,7 +125,7 @@ def test_main_waits_for_inspection_instead_of_ending_acquisition(dirs, sleeps, m
         def __init__(self, point_file, *args): self.point_file = point_file
         def __len__(self): return 1
         def checkISLimit(self): pass
-        def prepareForAcquisition(self, *args): set_up.append(self.point_file.name)
+        def prepareForAcquisition(self, *args): set_up.append(self.point_file.name); return True
         def getTargetsInfo(self, area_name): return [], [], {}
 
     inspection = iter([lambda: None, lambda: _touch(map_dir, "G01_PP2_inspected.txt")])
@@ -164,3 +164,61 @@ def test_waitForPointFiles_waits_for_manual_selection(dirs, sleeps):
 
     assert ready == [map_dir / "G01_PP1_points0.json"]
     assert len(sleeps) == 2
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_main_writes_targets_file_only_after_successful_setup(dirs, sleeps, monkeypatch, success):
+    """A targets file without acquisition item marks the area as done although it is never acquired."""
+
+    from types import SimpleNamespace
+
+    map_dir, cur_dir = dirs
+    _touch(map_dir, "G01_PP1.png", "G01_PP1_seg.png")
+    _points(map_dir, "G01_PP1_points.json")
+
+    class Nav:
+        def searchByEntry(self, *args, **kwargs): return [1]
+        def getIDfromNote(self, note): return 0
+
+    class Area:
+        def __init__(self, point_file, *args): self.point_file = point_file
+        def __len__(self): return 1
+        def checkISLimit(self): pass
+        def prepareForAcquisition(self, *args): return success
+        def getTargetsInfo(self, area_name): return [], [], {}
+
+    written = []
+    monkeypatch.setattr(prep.utils, "getCurDir", lambda: cur_dir)
+    monkeypatch.setattr(prep.utils, "loadSettings", lambda file: {"external_map_dir": "", "MM_wait_for_inspection": False})
+    monkeypatch.setattr(prep.utils, "writeTargets", lambda file, *args, **kwargs: written.append(file.name))
+    monkeypatch.setattr(prep.usem, "prepareEnvironment", lambda cur, ext: (map_dir, False))
+    monkeypatch.setattr(prep, "ImagingParams", lambda *args: None)
+    monkeypatch.setattr(prep, "Navigator", lambda **kwargs: Nav())
+    monkeypatch.setattr(prep, "WGModel", lambda *args: None)
+    monkeypatch.setattr(prep.space_ext, "MMModel", lambda: SimpleNamespace(setDimensions=lambda params: None))
+    monkeypatch.setattr(prep.space_ext, "TgtParams", lambda **kwargs: None)
+    monkeypatch.setattr(prep.space_ext, "updateQueue", lambda *args: None)
+    monkeypatch.setattr(prep, "Buffer", lambda **kwargs: None)
+    monkeypatch.setattr(prep, "PACEArea", Area)
+
+    prep.main()
+
+    assert written == (["G01_PP1_tgts.txt"] if success else [])
+    assert prep.getFailedFile(cur_dir, "G01_PP1").exists() is not success
+
+
+def test_failed_area_does_not_stop_waiting_for_predictions(dirs, sleeps):
+    """An area whose setup failed is not retried and must not count as ready, so the post action still waits for the next prediction."""
+
+    map_dir, cur_dir = dirs
+    _touch(map_dir, "G01_PP1.png", "G01_PP1_seg.png", "G01_PP2.png")
+    _points(map_dir, "G01_PP1_points.json")
+    prep.getFailedFile(cur_dir, "G01_PP1").touch()
+
+    def predict():
+        _touch(map_dir, "G01_PP2_seg.png")
+        _points(map_dir, "G01_PP2_points.json")
+    steps = iter([lambda: None, predict])
+
+    assert prep.findUnprocessedPointFiles(map_dir, cur_dir) == []
+    assert prep.waitForPointFiles(map_dir, cur_dir, update_function=lambda: next(steps, lambda: None)(), interval=0) == [map_dir / "G01_PP2_points.json"]

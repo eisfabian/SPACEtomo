@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.4
-# Last Change:  2026/11/14: fixed realignment of reloaded grid without IM maps
+# Last Change:  2026/11/19: no targets file when target setup failed
+#               2026/11/14: fixed realignment of reloaded grid without IM maps
 #               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/02/22: added support for custom ROI names
@@ -426,7 +427,9 @@ def main():
                         target_area.checkISLimit()
 
                         # Set up navigator and create virtual maps
-                        target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav, grid_name)
+                        if not target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav, grid_name):
+                            log(f"ERROR: Targets on {area_name} could not be set up for acquisition! Skipping...")
+                            continue
 
                         # Save target file
                         targets, geo_points, tgt_settings = target_area.getTargetsInfo(area_name)

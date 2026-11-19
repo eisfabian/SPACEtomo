@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/07/13
 # Revision:     v1.2
-# Last Change:  2026/11/14: fixed endless wait for predictions and repeated setup of maps with multiple target areas
+# Last Change:  2026/11/19: no targets file when target setup failed, failed areas are marked and not retried
+#               2026/11/14: fixed endless wait for predictions and repeated setup of maps with multiple target areas
 #               2026/11/14: wait for inspection instead of ending acquisition, maps without targets count as processed
 #               2026/11/06: fixed crash when collecting new point files
 #               2024/09/04: converted settings to configparser
@@ -67,14 +68,25 @@ def isInspected(point_file, wait_for_inspection):
     map_name = point_file.name.split("_points")[0]
     return (point_file.parent / (map_name + "_inspected.txt")).exists()
 
+def getFailedFile(cur_dir, area_name):
+    """Returns file marking a target area whose setup failed (not retried by the post action until the file is deleted)."""
+
+    return cur_dir / (area_name + "_setup_failed.txt")
+
 def findUnprocessedPointFiles(map_dir, cur_dir, wait_for_inspection=False):
-    """Returns point files whose target area has no targets file yet.
+    """Returns point files whose target area has no targets file yet and whose setup did not fail before.
 
     Empty point files (map without targets) only count as processed once inspected, as manual selection starts with empty point files.
     """
 
-    return [point_file for point_file in sorted(map_dir.glob("*_points*.json"))
-            if not (cur_dir / (getAreaName(point_file) + "_tgts.txt")).exists() and (hasTargets(point_file) or not isInspected(point_file, wait_for_inspection))]
+    unprocessed = []
+    for point_file in sorted(map_dir.glob("*_points*.json")):
+        area_name = getAreaName(point_file)
+        if (cur_dir / (area_name + "_tgts.txt")).exists() or getFailedFile(cur_dir, area_name).exists():
+            continue
+        if hasTargets(point_file) or not isInspected(point_file, wait_for_inspection):
+            unprocessed.append(point_file)
+    return unprocessed
 
 def waitForPointFiles(map_dir, cur_dir, wait_for_inspection=False, update_function=None, interval=60):
     """Waits until point files are ready for target setup or no more maps are processed or inspected. Returns the ready point files."""
@@ -158,7 +170,11 @@ def main():
         target_area.checkISLimit()
 
         # Set up navigator and create virtual maps
-        target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav)
+        if not target_area.prepareForAcquisition(CUR_DIR / (area_name + ".mrc"), nav):
+            failed_file = getFailedFile(CUR_DIR, area_name)
+            failed_file.write_text("Target setup failed, see SerialEM log. Delete this file to retry the target setup in the next post action.\n")
+            log(f"ERROR: Targets on {area_name} could not be set up for acquisition! Skipping... (Delete {failed_file.name} to retry.)")
+            continue
 
         # Save target file
         targets, geo_points, tgt_settings = target_area.getTargetsInfo(area_name)
