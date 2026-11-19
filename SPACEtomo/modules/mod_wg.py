@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/11/07: fixed BBox.scale shifting the box and padding less than the factor
+# Last Change:  2026/11/19: fixed excluded lamella classes not applied on first detection
+#               2026/11/07: fixed BBox.scale shifting the box and padding less than the factor
 #               2026/02/04: added support for saving and loading custom box names
 #               2025/01/10: Refactored findLamellae to account for both local and external runs
 #               2024/08/21: minor fixes after external test run
@@ -136,6 +137,7 @@ class WGModel:
                     save_future.result()
                     save_future = None
                 bboxes = self.runModel(map_name, suffix=suffix, overlap_microns=10, threshold=config.WG_detection_threshold, device=utils.DEVICE)
+                bboxes.excludeCats(exclude_cats)        # After saving the box file, which keeps all boxes
             else:
                 # Wait for boxes file to be written
                 log("Waiting for external lamella detection...")
@@ -162,15 +164,19 @@ class Boxes:
         self.boxes = []
         self.excluded_boxes = []
         for b, box in enumerate(bboxes):
-            # Ignore boxes of exclude_cats
             label = labels[b] if labels is not None and labels[b] != "" else label_prefix + str(b + 1).zfill(2) # Keep custom label if available
-            if config.WG_model_categories[int(box[4])] in exclude_cats:
-                self.excluded_boxes.append(BBox(box[:4], *box[4:], label=label))
-            else:
-                self.boxes.append(BBox(box[:4], *box[4:], label=label))
+            self.boxes.append(BBox(box[:4], *box[4:], label=label))
 
-        if len(self.boxes) - len(bboxes) > 0:
-            log(f"NOTE: {len(self.boxes) - len(bboxes)} lamellae were excluded because they were {', '.join(exclude_cats)}!")
+        self.excludeCats(exclude_cats)
+
+    def excludeCats(self, exclude_cats):
+        """Moves boxes of excluded categories to excluded_boxes."""
+
+        excluded = [box for box in self.boxes if config.WG_model_categories[int(box.cat)] in exclude_cats]
+        if excluded:
+            self.boxes = [box for box in self.boxes if box not in excluded]
+            self.excluded_boxes.extend(excluded)
+            log(f"NOTE: {len(excluded)} lamellae were excluded because they were {', '.join(exclude_cats)}!")
     
     def mergeOverlappingBoxes(self, margin=0.1):
         """Merges overlapping bboxes."""
