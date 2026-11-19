@@ -166,3 +166,21 @@ def test_AlignTo_same_mag_reports_specimen_shift(true_shift):
     sem.AlignTo("O", 1)
 
     assert np.allclose(np.array(sem.ReportAlignShift()[4:6]) / 1000, true_shift, atol=0.2)
+
+
+def test_AlignTo_show_correlation_rolls_image_to_B():
+    """#S=1 puts the cross-correlation into A and rolls the aligned image to B (reference outside the rolling buffers stays)."""
+
+    sem.GoToImagingState("IM")
+    sem.R()
+    sem.Copy("A", "O")
+    reference = np.array(sem.bufferImage("O"))
+    sem.MoveStageTo(*(np.array(sem.ReportStageXYZ()[:2]) + 2.0))
+    sem.R()
+    image = np.array(sem.bufferImage("A"))
+
+    sem.AlignTo("O", 1, 0, 0, 1)
+
+    assert np.array_equal(sem.bufferImage("B"), image)
+    assert not np.array_equal(sem.bufferImage("A"), image)
+    assert np.array_equal(sem.bufferImage("O"), reference)

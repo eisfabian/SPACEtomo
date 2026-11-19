@@ -559,7 +559,14 @@ def Eucentricity(mode=2, use_view=0):
     pass
 
 def AlignTo(buffer, avoid_is=0, *args):
+    """args: #T, #P, #S, ... With #S = 1 (show cross-correlation) SerialEM places the correlation into A and rolls
+    the aligned image to B (ShiftManager AutoAlign, CorrelationToBufferA); the alignment shift is not applied then."""
     _sim.align(buffer)
+    show = int(args[2]) if len(args) > 2 else 0
+    if show & 1:
+        image = _sim.buffers["A"]
+        correlation = _sim_module.ImageBuffer(np.zeros(image.img.shape, dtype=np.float32), image.pix_size, image.stage, image.s2px, image.mag_index, image.binning)
+        _sim.putInBuffer("A", correlation)
 
 def AlignBetweenMags(buffer, *args):
     """Aligns A to the reference; afterwards the image is in A again (buffers rolled, as assumed by Buffer.alignTo)."""

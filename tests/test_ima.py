@@ -276,3 +276,19 @@ def test_realignReloadedGrid_ignores_failed_alignment(reloaded_grid, monkeypatch
     assert ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id], max_iterations=2) is None
     assert all(np.allclose(_stages(nav)[label], stage) for label, stage in before.items())
     assert np.allclose(microscope.stage[:2], before["PP1"])
+
+
+def test_realignReloadedGrid_in_debug_mode(reloaded_grid, monkeypatch):
+    """DEBUG shows the cross-correlation (image rolled to B) and aligns again after copying B back to A."""
+
+    from SPACEtomo import config
+    monkeypatch.setattr(config, "DEBUG", True)
+
+    microscope, nav, wg_id, reload = reloaded_grid()
+    before = _stages(nav)
+    reload((-8.0, 5.0))
+
+    shift = ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id])
+
+    assert np.allclose(shift, (8.0, -5.0), atol=0.5)
+    assert np.allclose(_stages(nav)["PP1"], before["PP1"] + (8.0, -5.0), atol=0.5)
