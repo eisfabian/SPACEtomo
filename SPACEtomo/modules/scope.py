@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/11/14: fixed name of unnamed JEOL cartridges (float ID)
+# Last Change:  2026/11/24: polygon montage fitted with configured overlap, explain failed setup (#10)
+#               2026/11/14: fixed name of unnamed JEOL cartridges (float ID)
 #               2026/11/08: parameter queries also run in DUMMY mode (simulated microscope)
 #               2026/11/07: fixed Low Dose area being stored as number after changing imaging state
 #               2026/11/06: aperture commands try integer id first and fall back to letter
@@ -817,8 +818,27 @@ class Microscope:
         # Setup polygon montage
         sem.ParamSetToUseForMontage(2)
         sem.SetMontPanelParams(1, 1, 1, 1)      # check all Montage control panel options
-        sem.SetupPolygonMontage(poly_id + 1, 0, str(file))
-        sem.SetMontageParams(-1, int(overlap * min(self.camera_dims)), int(overlap * min(self.camera_dims)), *self.camera_dims, 0, 1) # stage move, overlap X, overlap Y, piece size X, piece size Y, skip correlation, binning
+
+        # Overlap in pixels (fraction of the short camera side, at most half a frame as required by SetMontageParams)
+        if not 0 < overlap < 0.5:
+            log(f"WARNING: Montage overlap of {overlap} is outside of the allowed range (0-0.5). Using {float(np.clip(overlap, 0.01, 0.49))} instead.")
+            overlap = float(np.clip(overlap, 0.01, 0.49))
+        overlap_px = int(overlap * min(self.camera_dims))
+
+        # Fit montage with the overlap acquired below: the fit determines the number of pieces and uses factor * long camera side
+        # (#O = 0 would use the factor from the Montage Setup dialog)
+        overlap_factor = float(np.clip(overlap_px / max(self.camera_dims), 0.01, 0.49))
+        try:
+            sem.StartTry(1)
+            sem.SetupPolygonMontage(poly_id + 1, overlap_factor, str(file))
+        except sem.SEMerror as err:
+            # Minimum overlap is the larger of the factor and the minimum overlap in microns (Montage Setup dialog, not settable by script)
+            log(f"ERROR: Montage for [{file.stem}] could not be set up: {str(err).strip()}")
+            log(f"ERROR: If the View field of view is small (high View magnification), the minimum overlap in microns in the Montage Setup dialog might exceed half a View image. Please lower it (e.g. to 1-2 microns) and run SPACEtomo again.")
+            raise
+        finally:
+            sem.EndTry()
+        sem.SetMontageParams(-1, overlap_px, overlap_px, *self.camera_dims, 0, 1) # stage move, overlap X, overlap Y, piece size X, piece size Y, skip correlation, binning
 
         pieces = int(sem.ReportNumMontagePieces())
         log(f"Collecting medium mag montage at [{file.stem}] ({pieces} pieces)...")

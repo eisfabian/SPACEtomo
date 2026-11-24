@@ -884,7 +884,9 @@ def SetupFullMontage(overlap, filename):
     OpenNewFile(str(_sim.montage["file"]))
 
 def SetupPolygonMontage(nav_id, flag, filename):
-    """Sets up a montage of the polygon item nav_id (1-based) and opens the montage file."""
+    """Sets up a montage of the polygon item nav_id (1-based) and opens the montage file. flag: minimum overlap factor (0 = dialog value)."""
+    if flag < 0 or flag >= 0.5:
+        raise SEMerror("Overlap factor must be between 0 (for unspecified) and 0.5")
     if _item(nav_id).item_type != 1:
         raise SEMerror(f"Navigator item {nav_id} is not a polygon")
     _sim.montage = {"kind": "polygon", "poly_index": int(nav_id), "file": _sim.path(filename), "view": _state.montage_param_set == 2}
