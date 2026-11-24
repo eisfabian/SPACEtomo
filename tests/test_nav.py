@@ -218,6 +218,17 @@ class TestNavItemCreation:
 # ---------------------------------------------------------------------------
 
 class TestNavItemModification:
+    def test_change_stage_does_not_share_coordinates(self, nav):
+        """A polygon moved to a map's position (retained ROI) must not move the map when it is shifted later."""
+        source, item = nav.items[0], nav.items[1]
+        source_stage = source.stage.copy()
+
+        item.changeStage(source.stage)
+        item.changeStage(np.array([5.0, 3.0]), relative=True)
+
+        assert np.allclose(source.stage, source_stage)
+        assert np.allclose(item.stage[:2], source_stage[:2] + [5.0, 3.0])
+
     def test_change_color(self, nav):
         item = nav.items[0]
         item.changeColor(3)

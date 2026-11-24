@@ -52,6 +52,7 @@ class FakeScope:
         self.autoloader = {1: "G01"}
         self.loaded_grid = 1
         self.stage = np.array([10.0, 20.0, 0.0])
+        self.camera_dims = np.array([100, 80])
 
     def changeImagingState(self, *args, **kwargs): pass
     def changeC2Aperture(self, *args, **kwargs): pass
@@ -102,6 +103,9 @@ def make_buffer_class(nav):
         def clearAlignment(self): pass
         def saveImg(self, *args, **kwargs): return None
         def px2stage(self, coords): return np.array([10.0, 20.0])
+        shape = np.array([100, 80])
+        def stage2px(self, coords): return np.array([50.0, 40.0])
+        def getCropImage(self, coords, fov): return np.zeros((int(fov[0]), int(fov[1])), dtype=np.int16)
 
         def addNavBoxes(self, boxes, labels=[], padding_factor=1, label_prefix=None):
             item = NavItem(len(nav) + 1, labels[0])
@@ -292,3 +296,49 @@ def test_realignReloadedGrid_in_debug_mode(reloaded_grid, monkeypatch):
 
     assert np.allclose(shift, (8.0, -5.0), atol=0.5)
     assert np.allclose(_stages(nav)["PP1"], before["PP1"] + (8.0, -5.0), atol=0.5)
+
+
+def test_realignReloadedGrid_survives_serialem_alignment_error(reloaded_grid, monkeypatch):
+    """SerialEM aborts AlignTo when no correlation peak is found; the realignment has to give up without shifting items."""
+
+    import serialem as sem
+
+    microscope, nav, wg_id, reload = reloaded_grid()
+    before = _stages(nav)
+    reload((3.0, -2.0))
+
+    def no_peak(*args):
+        raise sem.SEMerror("No correlation peaks were found within the allowed range")
+    monkeypatch.setattr(sem, "AlignTo", no_peak)
+
+    assert ima.realignReloadedGrid(microscope, nav, skip_item_ids=[wg_id]) is None
+    assert all(np.allclose(_stages(nav)[label], stage) for label, stage in before.items())
+
+
+def test_align_retained_roi_moves_to_im_image(tmp_path, make_nav, monkeypatch):
+    """No lamella detected on the IM image but high confidence on the grid map: the kept polygon has to move to where
+    IM alignment centered the lamella (the IM image), not stay at the grid map position from before the alignment."""
+
+    from SPACEtomo.modules import nav as nav_module
+    monkeypatch.setattr(nav_module, "SERIALEM", False)       # Navigator kept in memory by make_nav, no SerialEM item to rename
+
+    nav = make_nav("PP01")
+    new_map = nav.newMap
+
+    def new_map_after_alignment(**kwargs):
+        nav_id = new_map(**kwargs)
+        nav.items[nav_id].changeStage(np.array([13.0, 24.0]))       # IM image taken after alignToRef moved the stage
+        return nav_id
+    monkeypatch.setattr(nav, "newMap", new_map_after_alignment)
+
+    class NoLamella(FakeWGModel):
+        def findLamellae(self, map_name, save_future=None):
+            boxes = FakeBoxes()
+            boxes.boxes = []
+            return boxes
+
+    IMAlignment(tmp_path, tmp_path, FakeScope(), nav, FakeParams(), WG_model=NoLamella()).align({"WG_distance_threshold": 0.1})
+
+    fp_ids = nav.searchByEntry("label", "FP", partial=True)
+    assert len(fp_ids) == 1
+    assert np.allclose(nav.items[fp_ids[0]].stage[:2], (13.0, 24.0))

@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/02/06
 # Revision:     v1.4
-# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+# Last Change:  2026/11/24: realign View to the IM image around the ROI (MMref) instead of the grid map crop (#10)
+#               2026/11/14: fixed map at nav index 0 treated as missing
 #               2026/11/08: removed dummy class shadowing
 #               2026/02/22: added support for custom ROI names
 #               2025/02/12: added geo estimation
@@ -200,6 +201,8 @@ class MMMAcquisition:
             im_buffer = Buffer(buffer="A")
 
             _, ss_shift = im_buffer.alignTo(ref_buffer, avoid_image_shift=True)
+            if ss_shift is None:
+                break
             stage_shift = self.microscope.getMatrices()["ss2s"] @ ss_shift
 
             if np.linalg.norm(stage_shift) <= threshold:
@@ -236,13 +239,12 @@ class MMMAcquisition:
         except (KeyError, IndexError, TypeError):
             display_label = self.map_name.split(grid_name)[-1].lstrip('_')
         
-        ref_file = self.cur_dir / f"{grid_name}_{display_label}_IMref.mrc"
-        if ref_file.exists():
-            log(f"Realigning to IM reference...")
-            _, stage_shift = self.alignToRef(ref_buffer=Buffer(buffer="O", file_path=ref_file))
-            self.nav.shiftItems(stage_shift, shift_items)
-            log(f"NOTE: Adjusted polygon position by {stage_shift}.")
-        else:
-            log(f"ERROR: No reference image found for realignment! Please make sure [{ref_file}] exists.")
-            log(f"WARNING: Skipping realignment for {self.map_name}.")
+        ref_file = self.cur_dir / f"{grid_name}_{display_label}_MMref.mrc"
+        if not ref_file.exists():
+            log(f"WARNING: No MM reference found for {display_label} [{ref_file.name}]. Skipping realignment, the map will be collected at the ROI polygon position.")
             return
+
+        log(f"Realigning to IM image...")
+        _, stage_shift = self.alignToRef(ref_buffer=Buffer(buffer="O", file_path=ref_file))
+        self.nav.shiftItems(stage_shift, shift_items)
+        log(f"NOTE: Adjusted polygon position by {stage_shift}.")

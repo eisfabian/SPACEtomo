@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/11/14: fixed map at nav index 0 treated as missing
+# Last Change:  2026/11/24: alignTo returns None instead of aborting when SerialEM alignment fails
+#               2026/11/14: fixed map at nav index 0 treated as missing
 #               2026/11/08: rescaleImage keeps intensities (counts wrapped around), saved pngs are always 8 bit
 #               2026/11/07: fixed getCropImage padding when crop exceeds both map edges
 #               2026/02/22: added support for custom ROI names
@@ -560,7 +561,7 @@ class Buffer:
         return imageCrop
     
     def alignTo(self, buffer, avoid_image_shift=False):
-        """Aligns current buffer to given buffer."""
+        """Aligns current buffer to given buffer. Returns (None, None) if SerialEM could not align (e.g. no correlation peak)."""
 
         # Bring buffer to A for AlignTo
         if self.buf != "A":
@@ -581,18 +582,26 @@ class Buffer:
             finally:
                 sem.EndTry()
 
-        if abs(buf_pix_size - self.pix_size) < 0.01:
-            log(f"DEBUG: Aligning buffer [{self.buf}] to buffer [{buffer}]...")
-            sem.AlignTo(buffer, int(avoid_image_shift), 0, 0, int(config.DEBUG))
-            if config.DEBUG:
-                sem.AddBufToStackWindow("A", 0, 0, 0, 0, "CC") #M #S [#B] [#O] [title]
-                sem.Copy("B", "A")
-                sem.AlignTo(buffer, int(avoid_image_shift))
-        else:
-            log(f"DEBUG: Aligning (between mags) buffer [{self.buf}, {self.pix_size} nm/px] to buffer [{buffer}, {buf_pix_size} nm/px]...")
-            sem.AlignBetweenMags(buffer, -1, -1, -2, 0, -1, int(avoid_image_shift)) # buffer, center X, center Y, max allowed shift, scale (default: 4%), rotation (default: 3 degrees), avoid_image_shift
-            self.rollBuffers()
-            self.buf = "A" # Buffer is put back into A, processed reference is in B
+        # SerialEM aborts the script on alignment errors (e.g. "No correlation peaks were found within the allowed range")
+        try:
+            sem.StartTry(1)
+            if abs(buf_pix_size - self.pix_size) < 0.01:
+                log(f"DEBUG: Aligning buffer [{self.buf}] to buffer [{buffer}]...")
+                sem.AlignTo(buffer, int(avoid_image_shift), 0, 0, int(config.DEBUG))
+                if config.DEBUG:
+                    sem.AddBufToStackWindow("A", 0, 0, 0, 0, "CC") #M #S [#B] [#O] [title]
+                    sem.Copy("B", "A")
+                    sem.AlignTo(buffer, int(avoid_image_shift))
+            else:
+                log(f"DEBUG: Aligning (between mags) buffer [{self.buf}, {self.pix_size} nm/px] to buffer [{buffer}, {buf_pix_size} nm/px]...")
+                sem.AlignBetweenMags(buffer, -1, -1, -2, 0, -1, int(avoid_image_shift)) # buffer, center X, center Y, max allowed shift, scale (default: 4%), rotation (default: 3 degrees), avoid_image_shift
+                self.rollBuffers()
+                self.buf = "A" # Buffer is put back into A, processed reference is in B
+        except sem.SEMerror as err:
+            log(f"WARNING: Alignment to buffer [{buffer}] failed: {str(err).strip()}")
+            return None, None
+        finally:
+            sem.EndTry()
 
         shift = sem.ReportAlignShift()
         pixel_shift = np.array(shift[:2])

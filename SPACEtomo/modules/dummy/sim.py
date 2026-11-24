@@ -7,7 +7,8 @@
 # Author:       Fabian Eisenstein / Claude
 # Created:      2026/11/08
 # Revision:     v1.4
-# Last Change:  2026/11/14: alignment of same-size images (padded reference), binned correlation
+# Last Change:  2026/11/24: alignment ignores matches mostly in the reference padding (like SerialEM's 0.5 FOV overlap)
+#               2026/11/14: alignment of same-size images (padded reference), binned correlation
 #               2026/11/08: created
 # ===================================================================
 #
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import mrcfile
 from skimage import transform
+from scipy import signal
 from skimage.feature import match_template
 
 from SPACEtomo.modules.dummy.specimen import Specimen, stageToPixelMatrix, toCounts
@@ -348,6 +350,10 @@ class Sim:
         c0 = (ref_img.shape[1] - img.shape[1]) // 2 - search
         region = padded[r0 + search: r0 + search + img.shape[0] + 2 * search, c0 + search: c0 + search + img.shape[1] + 2 * search]
         cc = match_template(region, img)
+        # Like SerialEM, require the image to overlap the reference by at least half (matches in the constant padding are spurious)
+        valid = np.pad(np.ones(ref_img.shape), search)[r0 + search: r0 + search + region.shape[0], c0 + search: c0 + search + region.shape[1]]
+        overlap = signal.fftconvolve(valid, np.ones(img.shape), mode="valid") / img.size
+        cc = np.where((overlap >= 0.5) & np.isfinite(cc), cc, -np.inf)
         peak_row, peak_col = np.unravel_index(np.argmax(cc), cc.shape)
         d_row = r0 + peak_row + img.shape[0] / 2 - ref_img.shape[0] / 2
         d_col = c0 + peak_col + img.shape[1] / 2 - ref_img.shape[1] / 2

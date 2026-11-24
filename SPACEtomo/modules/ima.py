@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/10
 # Revision:     v1.4
-# Last Change:  2026/11/14: added realignment of reloaded grid to IM maps (moved from run.py)
+# Last Change:  2026/11/24: failed alignments count as not converged instead of aborting, saves MM reference (IM image around ROI)
+#               2026/11/14: added realignment of reloaded grid to IM maps (moved from run.py)
 #               2026/11/08: removed dummy class shadowing
 #               2026/11/06: fixed shifting all nav items when aligning the last ROI
 #               2026/11/06: fixed IM map losing PP label with custom ROI names
@@ -170,7 +171,8 @@ class IMAlignment:
         else:
             # Retain preliminary lamella if initial confidence was high (includes manually selected lamella)
             if float(pp_item.entries["UserValue1"][0]) >= 0.9:
-                self.retainPreliminary(p_id, pp_item)
+                # IM alignment centered the IM image on the lamella, the PP stage is from before the alignment
+                self.retainPreliminary(p_id, pp_item, new_stage=self.nav.items[self.position_ids[p_id]].stage)
                 log(f"WARNING: No lamella detected! Initially detected lamella was retained due to high confidence [{round(float(pp_item.entries['UserValue1'][0]) * 100)} %].")
             else:
                 log(f"WARNING: No lamella detected. If you want to add lamellae manually, please select wait_for_inspection in the settings.")
@@ -213,6 +215,8 @@ class IMAlignment:
             im_buffer = Buffer(buffer="A")
 
             _, ss_shift = im_buffer.alignTo(ref_buffer, avoid_image_shift=True)
+            if ss_shift is None:
+                break
             stage_shift = self.microscope.getMatrices()["ss2s"] @ ss_shift
 
             if np.linalg.norm(stage_shift) <= threshold:
@@ -304,6 +308,27 @@ class IMAlignment:
             else:
                 self.retainPreliminary(p, pp_item, new_stage=self.nav.items[position_id].stage)
 
+            fp_label = self.nav.items[position_id].label.replace(self.label_prefix, self.final_prefix, 1)
+            self.saveMMReference(im_buffer, fp_label, self.cur_dir / f"{grid_name}_{display_label}_MMref.mrc")
+
+    def saveMMReference(self, im_buffer, fp_label, ref_file):
+        """Crops IM image around the final ROI position as reference for the View realignment before the MM montage.
+
+        Done right after the ROI polygon was placed on the IM image: same imaging state and before any item shifts.
+        """
+
+        fp_ids = self.nav.searchByEntry("label", fp_label)
+        if not fp_ids:
+            return      # No ROI at this position
+        # Largest region centered on the ROI that fits into the image (padding would add featureless areas to the reference)
+        center = np.array(im_buffer.stage2px(self.nav.items[fp_ids[0]].stage[:2])[:2])            # (x, y)
+        half = np.floor(np.minimum(center, im_buffer.shape - center)).astype(int)
+        if np.any(half < 1):
+            log(f"WARNING: ROI {fp_label} is outside of the IM image. No reference for realignment before the MM montage was saved.")
+            return
+        crop = im_buffer.getCropImage(np.flip(center), np.flip(2 * half))                          # (row, col)
+        utils.writeMrc(ref_file, np.flip(crop, axis=0), im_buffer.pix_size)
+
     def saveAlignment(self):
         """Saves alignment result to file."""
 
@@ -334,6 +359,8 @@ def realignReloadedGrid(microscope: Microscope, nav: Navigator, skip_item_ids=()
         for _ in range(max_iterations):
             microscope.record()
             _, ss_shift = Buffer("A").alignTo(ref_buffer, avoid_image_shift=True)
+            if ss_shift is None:
+                break
             stage_shift = microscope.getMatrices()["ss2s"] @ ss_shift
             if np.linalg.norm(stage_shift) <= threshold:
                 shift = microscope.stage[:2] - stage_initial[:2] - stage_shift

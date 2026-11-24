@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.3
-# Last Change:  2026/11/17: fixed SerialEM index of new items, nav file written via temp file
+# Last Change:  2026/11/24: changeStage copies coordinates (item no longer shares its stage array with the source)
+#               2026/11/17: fixed SerialEM index of new items, nav file written via temp file
 #               2026/11/08: removed DUMMY replacements and mock save callback (the mock owns the navigator)
 #               2026/11/07: polygon stage ignores closing point
 #               2026/07/17: added entry_overrides to createMap/newMapFromImg for stamping View maps
@@ -170,10 +171,11 @@ class NavItem:
         pts_x = [float(x) - self.stage[0] for x in self.entries["PtsX"]]
         pts_y = [float(y) - self.stage[1] for y in self.entries["PtsY"]]
 
+        # New array: coords can be the stage array of another item
         if relative:
-            self.stage += coords
+            self.stage = self.stage + np.asarray(coords, dtype=float)
         else:
-            self.stage = coords
+            self.stage = np.array(coords, dtype=float)
 
         self.entries["PtsX"] = [str(x + self.stage[0]) for x in pts_x]
         self.entries["PtsY"] = [str(y + self.stage[1]) for y in pts_y]
