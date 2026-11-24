@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
 # Revision:     v1.2
-# Last Change:  2024/12/13: added check for backup config
+# Last Change:  2026/11/24: added MM_montage_IS_blocks (#10)
+#               2024/12/13: added check for backup config
 #               2024/09/26: outsourcing of more settings from SPACEtomo_run scripts
 #               2024/08/20: added SerialEM connection setting
 #               2024/05/02: changed model colors to RGBA
@@ -29,6 +30,7 @@ WG_detection_threshold  = 0.1                   # confidence threshold for lamel
 
 MM_montage_overlap      = 0.25                  # overlap between pieces of medium mag montage
 MM_padding_factor       = 1.5                   # padding of estimated lamella size for medium mag montage
+MM_montage_IS_blocks    = 0                     # maximum image shift [microns] for image shift in blocks during medium mag montages (faster), 0: use setting of SerialEM's Montage Setup dialog (stays switched on in SerialEM once used)
 
 aperture_control        = True                  # set to True if SerialEM can control apertures (https://bio3d.colorado.edu/SerialEM/hlp/html/setting_up_serialem.htm#apertures)
 c2_apertures            = [0, 0, 0]             # diameter of C2 apertures for [WG, IM, MM] imaging states, keep 0 to avoid changing apertures

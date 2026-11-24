@@ -6,7 +6,7 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/13
 # Revision:     v1.4
-# Last Change:  2026/11/24: polygon montage fitted with configured overlap, explain failed setup (#10)
+# Last Change:  2026/11/24: polygon montage fitted with configured overlap, explain failed setup, image shift in blocks (#10)
 #               2026/11/14: fixed name of unnamed JEOL cartridges (float ID)
 #               2026/11/08: parameter queries also run in DUMMY mode (simulated microscope)
 #               2026/11/07: fixed Low Dose area being stored as number after changing imaging state
@@ -807,8 +807,11 @@ class Microscope:
 
         return map_id
 
-    def collectPolygonMontage(self, poly_id, file, overlap):
-        """Collects montage at polygon using View mode."""
+    def collectPolygonMontage(self, poly_id, file, overlap, max_block_is=0):
+        """Collects montage at polygon using View mode.
+
+        max_block_is: maximum image shift [microns] for image shift in blocks, 0 keeps the setting of the Montage Setup dialog.
+        """
 
         self.changeLowDoseArea("V")
 
@@ -838,7 +841,11 @@ class Microscope:
             raise
         finally:
             sem.EndTry()
-        sem.SetMontageParams(-1, overlap_px, overlap_px, *self.camera_dims, 0, 1) # stage move, overlap X, overlap Y, piece size X, piece size Y, skip correlation, binning
+        if max_block_is > 0:
+            log(f"DEBUG: Using image shift in blocks up to {max_block_is} microns.")
+            sem.SetMontageParams(2, overlap_px, overlap_px, *self.camera_dims, 0, 1, float(max_block_is)) # stage move with image shift in blocks, overlap X, overlap Y, piece size X, piece size Y, skip correlation, binning, max image shift
+        else:
+            sem.SetMontageParams(-1, overlap_px, overlap_px, *self.camera_dims, 0, 1) # stage move, overlap X, overlap Y, piece size X, piece size Y, skip correlation, binning
 
         pieces = int(sem.ReportNumMontagePieces())
         log(f"Collecting medium mag montage at [{file.stem}] ({pieces} pieces)...")

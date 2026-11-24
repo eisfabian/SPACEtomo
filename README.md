@@ -192,8 +192,9 @@ You can edit and adjust the config.py like a text file for your needs.
 - `WG_montage_overlap`: Overlap between neighboring tiles of the LM map for stitching.
 - `WG_detection_threshold`: YOLOv8 confidence threshold for considering a hit a lamella. Raise this value if you have a lot of false positives.
 
-- `MM_montage_overlap`: Overlap between neighboring tiles of the MM map for stitching. Good stitching is especially important here for reliable target selection.
+- `MM_montage_overlap`: Overlap between neighboring tiles of the MM map for stitching (fraction of the short camera side). Good stitching is especially important here for reliable target selection. This value replaces the overlap factor of SerialEM's Montage Setup dialog. The minimum overlap in microns of the Montage Setup dialog still applies; if the montage setup fails at a high View magnification, lower it (e.g. to 1-2 microns).
 - `MM_padding_factor`: MM maps are padded by this factor compared to the lamella bounding box. This accounts for the coordinates being off center or the bounding box prediction being off.
+- `MM_montage_IS_blocks`: Maximum image shift [microns] for collecting MM maps with image shift in blocks, which is faster for large maps (e.g. 10). Keep at 0 to use the setting of SerialEM's Montage Setup dialog. Once used, image shift in blocks stays switched on in SerialEM's Montage Setup (also for your own montages) until you turn it off there.
 
 - `aperture_control`: [Does SerialEM have control over the apertures](https://bio3d.colorado.edu/SerialEM/hlp/html/setting_up_serialem.htm#apertures)?
 - `c2_apertures`: List of C2 aperture diameters for WG, IM and MM imaging states ([see below](#settings)). If set to `[0, 0, 0]`, no aperture change will be attempted.

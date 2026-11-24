@@ -6,7 +6,7 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/02/06
 # Revision:     v1.4
-# Last Change:  2026/11/24: realign View to the IM image around the ROI (MMref) instead of the grid map crop (#10)
+# Last Change:  2026/11/24: realign View to the IM image around the ROI (MMref) instead of the grid map crop, image shift in blocks (#10)
 #               2026/11/14: fixed map at nav index 0 treated as missing
 #               2026/11/08: removed dummy class shadowing
 #               2026/02/22: added support for custom ROI names
@@ -162,7 +162,7 @@ class MMMAcquisition:
             #geo = self.geoFromView() # TODO: Work on reliability
 
             # Collect map
-            map_id = self.microscope.collectPolygonMontage(self.poly_id, self.map_file, config.MM_montage_overlap)
+            map_id = self.microscope.collectPolygonMontage(self.poly_id, self.map_file, config.MM_montage_overlap, max_block_is=getattr(config, "MM_montage_IS_blocks", 0))     # getattr: configs from before the setting was added
             self.nav.pull()
             # Extract label from map_name for navigator (e.g., "grid_FP01" -> "FP01")
             grid_name = self.microscope.autoloader[self.microscope.loaded_grid]

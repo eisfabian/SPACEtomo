@@ -64,3 +64,47 @@ def test_failed_setup_explains_minimum_overlap(polygon, tmp_path, monkeypatch, c
 def _try_depth():
     from SPACEtomo.modules.dummy import serialem as mock
     return mock._state._try_depth
+
+
+@pytest.mark.parametrize("max_block_is, stage_move", [(0, -1), (10, 2)])
+def test_image_shift_in_blocks(polygon, tmp_path, monkeypatch, max_block_is, stage_move):
+    """0 keeps the stage/image shift choice of the Montage Setup dialog, a positive value uses image shift in blocks up to that many microns."""
+
+    microscope, poly_id = polygon
+    calls = []
+
+    def montage_params(*args):
+        calls.append(args)
+        raise Stop
+    monkeypatch.setattr(sem, "SetMontageParams", montage_params)
+
+    with pytest.raises(Stop):
+        microscope.collectPolygonMontage(poly_id, tmp_path / "G01_FP01.mrc", config.MM_montage_overlap, max_block_is=max_block_is)
+
+    assert calls[0][0] == stage_move
+    if max_block_is:
+        assert calls[0][7] == pytest.approx(max_block_is)
+    else:
+        assert len(calls[0]) < 8 or calls[0][7] == -1
+
+
+def test_mm_map_uses_configured_block_image_shift(tmp_path, monkeypatch):
+    from SPACEtomo.modules.mma import MMMAcquisition
+
+    sem.SetDirectory(str(tmp_path))
+    nav = Navigator(tmp_path / "G01.nav")
+    Buffer.nav = nav
+    microscope = Microscope()
+    microscope.autoloader, microscope.loaded_grid = {1: "G01"}, 1
+    monkeypatch.setattr(config, "MM_montage_IS_blocks", 7.5, raising=False)
+    calls = []
+
+    def collect(*args, **kwargs):
+        calls.append(kwargs)
+        raise Stop
+    monkeypatch.setattr(microscope, "collectPolygonMontage", collect)
+
+    with pytest.raises(Stop):
+        MMMAcquisition(tmp_path, tmp_path / "G01_FP01.mrc", 0, microscope, nav).collectMap()
+
+    assert calls[0]["max_block_is"] == 7.5
