@@ -6,7 +6,7 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
 # Revision:     v1.2dev
-# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+# Last Change:  2026/11/24: missing model error names the Python environment, model info shared by SPACEmonitor for external processing (#10)
 #               2026/11/08: DUMMY mode segments maps with the ground truth of the synthetic grid
 #               2024/08/21: removed SPACE_DIR, fixed map staying in run list when error is detected
 #               2024/07/31: allowed for empty seg to be 1x1 image
@@ -63,8 +63,42 @@ from SPACEtomo.modules.utils import log
 
 ##### MM functions #####
 
+def shareModelInfo(map_dir):
+    """Shares classes and pixel size of the local segmentation model via the map dir (SPACEmonitor on the processing PC)."""
+
+    try:
+        model = MMModel()
+    except FileNotFoundError as err:
+        log(f"WARNING: {err}")
+        log(f"WARNING: Segmentation model information could not be shared. Only lamella detection can be run externally.")
+        return False
+    model.exportInfo(map_dir)
+    log(f"NOTE: Shared segmentation model information in [{map_dir}] for SPACEtomo on the microscope PC.")
+    return True
+
+def checkMMModel(external_map_dir, automation_level=2):
+    """Checks at the start of a run that the segmentation model is available (locally or shared by SPACEmonitor for external processing)."""
+
+    if not config.NO_MM_MODEL:
+        return True
+    message = utils.modelNotFoundMessage("Lamella segmentation model", config.MM_model_folder)
+    if not external_map_dir:
+        log(f"ERROR: {message}")
+        return False
+    if automation_level >= 2 and not (Path(external_map_dir) / MMModel.info_file).exists():
+        log(f"ERROR: {message} For external processing, start SPACEmonitor on the processing PC first, which shares the model information in [{external_map_dir}].")
+        return False
+    return True
+
 class MMModel:
-    def __init__(self, alt_model_dir=None):
+    info_file = "MM_model_info.json"       # Classes and pixel size shared by SPACEmonitor in the external map dir
+
+    def __init__(self, alt_model_dir=None, info_dir=None):
+        """Loads classes and pixel size of the segmentation model.
+
+        info_dir: external map dir; if the model is not available locally (external processing), its info shared by SPACEmonitor is used.
+        """
+
         self.script = Path(__file__).parent.parent / config.MM_model_script
 
         # Allow for loading of specific model
@@ -73,19 +107,37 @@ class MMModel:
         else:
             self.dir = Path(alt_model_dir)
 
-        if not self.dir.exists() or not (self.dir / "dataset.json").exists():
-            raise FileNotFoundError(utils.modelNotFoundMessage("Lamella segmentation model", self.dir))
+        if self.dir.exists() and (self.dir / "dataset.json").exists():
+            # Get all classes from model folder
+            with open(self.dir / "dataset.json", "r") as f:
+                dataset_json = json.load(f)
+            self.categories = dataset_json["labels"]
 
-        # Get all classes from model folder
-        with open(self.dir / "dataset.json", "r") as f:
-            dataset_json = json.load(f)
-        self.categories = dataset_json["labels"]
+            # Check json for pix size and fall back to config if not present
+            if "pixel_size" in dataset_json.keys():
+                self.pix_size = dataset_json["pixel_size"]
+            else:
+                self.pix_size = config.MM_model_pix_size
 
-        # Check json for pix size and fall back to config if not present
-        if "pixel_size" in dataset_json.keys():
-            self.pix_size = dataset_json["pixel_size"]
+        elif info_dir is not None and (Path(info_dir) / self.info_file).exists():
+            with open(Path(info_dir) / self.info_file, "r") as f:
+                info = json.load(f)
+            log(f"NOTE: Lamella segmentation model is not available on this PC. Using model information shared by SPACEmonitor [{info.get('model', '')}, {info.get('shared', '')}].")
+            self.categories = info["labels"]
+            self.pix_size = info["pixel_size"]
+            self.dir = None
+
         else:
-            self.pix_size = config.MM_model_pix_size
+            message = utils.modelNotFoundMessage("Lamella segmentation model", self.dir)
+            if info_dir is not None:
+                message += f" For external processing, start SPACEmonitor on the processing PC first, which shares the model information in [{info_dir}]."
+            raise FileNotFoundError(message)
+
+    def exportInfo(self, directory):
+        """Writes classes and pixel size for SPACEtomo on a PC without the model (external processing)."""
+
+        with open(Path(directory) / self.info_file, "w") as f:
+            json.dump({"labels": self.categories, "pixel_size": self.pix_size, "model": self.dir.name if self.dir else "", "shared": time.strftime("%Y-%m-%d %H:%M:%S")}, f, indent=4)
 
     def setDimensions(self, mic_params):
         self.beam_diameter = mic_params.rec_beam_diameter * 1000 / self.pix_size

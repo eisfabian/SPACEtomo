@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/03/20
 # Revision:     v1.3
-# Last Change:  2026/11/08: wait for background loading before closing (segfault on close)
+# Last Change:  2026/11/24: segmentation model info from SPACEmonitor for external processing (#10)
+#               2026/11/08: wait for background loading before closing (segfault on close)
 #               2026/06/16: matched click area to LD FOV, prefer closer geo point, fixed drag release snapping
 #               2025/08/25: added LD area selection in tgt menu, removed any target overlay texture code
 #               2025/08/24: replaced target overlay generation with new implementation using drawlist
@@ -1961,7 +1962,7 @@ class TargetGUI:
             # Instantiate mic params from settings
             self.mic_params = space_ext.MicParams_ext(self.cur_dir)        
             # Load model
-            self.model = space_ext.MMModel()
+            self.model = space_ext.MMModel(info_dir=self.cur_dir)
             self.model.setDimensions(self.mic_params)
 
             # Check if tgt_params exist

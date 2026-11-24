@@ -5,7 +5,7 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+# Last Change:  2026/11/24: missing model error names the Python environment, external processing without local MM model (#10)
 #               2026/11/19: no targets file when target setup failed
 #               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
@@ -77,9 +77,8 @@ def main():
     if settings["manual_selection"] and not settings["MM_wait_for_inspection"]: # Force inspection in case of manual selection
         settings["MM_wait_for_inspection"] = True
 
-    # Check model
-    if config.NO_MM_MODEL:
-        log(f"ERROR: {utils.modelNotFoundMessage('Lamella segmentation model', config.MM_model_folder)}")
+    # Check model (external processing gets model info from SPACEmonitor)
+    if not space_ext.checkMMModel(settings["external_map_dir"]):
         return
 
     # Setup dir
@@ -127,7 +126,7 @@ def main():
 
     # Load models
     WG_model = WGModel(MAP_DIR, EXTERNAL_RUN)
-    MM_model = space_ext.MMModel()
+    MM_model = space_ext.MMModel(info_dir=MAP_DIR if EXTERNAL_RUN else None)
 
     # Get imaging parameters and save
     log("Getting imaging parameters...")

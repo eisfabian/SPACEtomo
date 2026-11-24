@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/05/31
 # Revision:     v1.4
-# Last Change:  2026/01/31: finished GUI rework
+# Last Change:  2026/11/24: segmentation model info from SPACEmonitor for external processing, no crash without model (#10)
+#               2026/01/31: finished GUI rework
 #               2025/06/01: added external SerialEM connection
 #               2025/05/31: Copy most of lam_sel
 # ===================================================================
@@ -20,6 +21,7 @@ import SPACEtomo.config as config
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 try:
     import dearpygui.dearpygui as dpg
 except:
@@ -556,7 +558,7 @@ class SettingsGUI:
         self.status = None
         self.imaging_states = None
 
-        self.model = MMModel()
+        self.model = self.loadModel()
 
         # Load autoloader data from JSON if available
         self.autoloader = {}
@@ -575,6 +577,23 @@ class SettingsGUI:
 
         # One-time calls
         self.loaded_defaults = False                # Needed to load defaults only once
+
+    def loadModel(self):
+        """Loads segmentation model classes (shared by SPACEmonitor in the external map dir if the model is not on this PC)."""
+
+        # External map dir from the session's settings or the last used settings
+        info_dir = None
+        for settings_file in (self.session_dir / "SPACEtomo_settings.ini", Path(__file__).parent.parent.parent / "config/default_settings.ini"):
+            if settings_file.exists():
+                info_dir = utils.loadSettings(settings_file).get("external_map_dir") or None
+                if info_dir:
+                    break
+        try:
+            return MMModel(info_dir=info_dir)
+        except FileNotFoundError as err:
+            log(f"WARNING: {err}")
+            log(f"WARNING: Target and avoid classes cannot be selected.")
+            return SimpleNamespace(categories={}, pix_size=config.MM_model_pix_size)
 
     def configureHandlers(self):
         """Sets up dearpygui registries and handlers."""

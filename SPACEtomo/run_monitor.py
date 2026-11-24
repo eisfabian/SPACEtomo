@@ -7,7 +7,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/05
 # Revision:     v1.2
-# Last Change:  2024/08/20: adjusted to refactor
+# Last Change:  2026/11/24: shares segmentation model info so the microscope PC does not need the model (#10)
+#               2024/08/20: adjusted to refactor
 #               2024/04/09: deleted run file upon start to avoid problems upon restart
 #               2024/04/04: added call to tgt GUI
 #               2024/03/25: fixes after Krios 3 test
@@ -60,6 +61,7 @@ def main():
 
     # Load model
     WG_model = WGModel(MAP_DIR)
+    space_ext.shareModelInfo(MAP_DIR)       # Microscope PC reads classes and pixel size from here
 
     MM_model = None
     mic_params = None

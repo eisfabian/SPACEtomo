@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/07/13
 # Revision:     v1.2
-# Last Change:  2026/11/19: no targets file when target setup failed, failed areas are marked and not retried
+# Last Change:  2026/11/24: external processing without local MM model (#10)
+#               2026/11/19: no targets file when target setup failed, failed areas are marked and not retried
 #               2026/11/14: fixed endless wait for predictions and repeated setup of maps with multiple target areas
 #               2026/11/14: wait for inspection instead of ending acquisition, maps without targets count as processed
 #               2026/11/06: fixed crash when collecting new point files
@@ -124,7 +125,7 @@ def main():
 
     # Load models
     WG_model = WGModel(MAP_DIR, EXTERNAL_RUN)
-    MM_model = space_ext.MMModel()
+    MM_model = space_ext.MMModel(info_dir=MAP_DIR if EXTERNAL_RUN else None)
     MM_model.setDimensions(imaging_params)
 
     # Instantiate tgt params from settings

@@ -116,6 +116,8 @@ To let SerialEM access this environment, we have to adjust the *SerialEM_propert
 
     PathToPython	3.9 	<path_to_your_venv>\Scripts
 
+If SPACEtomo in SerialEM reports a missing model although `SPACEmodel list` shows it, SerialEM is most likely using a different Python environment: check this path. The error message shows the environment SPACEtomo is running in.
+
 
 ## Configuration
 
@@ -560,7 +562,7 @@ The external GPU machine requires the same Python packages (full environment) as
 	source <path_to_your_venv>/bin/activate
 	SPACEmonitor --dir <path_to_external_map_dir> --gpu <comma-separated_list_of_GPUs>
 
-The monitor script will check the map dir periodically, queue any maps to be analyzed, save the segmentation to the same directory and run the target selection algorithms.
+The monitor script will check the map dir periodically, queue any maps to be analyzed, save the segmentation to the same directory and run the target selection algorithms. It also shares the classes and pixel size of the segmentation model (*MM_model_info.json* in the map dir), so the models do not have to be imported on the SerialEM computer. Start the monitor before the SPACEtomo run.
 
 SPACEtomo on the SerialEM computer will keep checking the map dir for new coordinate files and setup the targets when appropriate. For inspection of the maps and targets you can run the `SPACEtomo targets <path_to_external_map_dir>` command as described [above](#target-selection-gui) either on the SerialEM computer or on the external machine.
 
