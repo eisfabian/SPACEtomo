@@ -277,7 +277,7 @@ def test_prepTargets_picks_up_new_point_files(monkeypatch, tmp_path):
     monkeypatch.setattr(prep, "ImagingParams", lambda *args: None)
     monkeypatch.setattr(prep, "Navigator", lambda **kwargs: Nav())
     monkeypatch.setattr(prep, "WGModel", lambda *args: None)
-    monkeypatch.setattr(prep.space_ext, "MMModel", lambda: SimpleNamespace(setDimensions=lambda params: None))
+    monkeypatch.setattr(prep.space_ext, "MMModel", lambda **kwargs: SimpleNamespace(setDimensions=lambda params: None))
     monkeypatch.setattr(prep.space_ext, "TgtParams", lambda **kwargs: None)
     monkeypatch.setattr(prep.space_ext, "monitorFiles", monitorFiles)
     monkeypatch.setattr(prep, "Buffer", lambda **kwargs: None)
