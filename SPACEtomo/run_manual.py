@@ -5,7 +5,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2025/01/09
 # Revision:     v1.3
-# Last Change:  2026/11/19: no targets file when target setup failed
+# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+#               2026/11/19: no targets file when target setup failed
 #               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
 #               2026/07/10: warn if manual map pixel size matches neither View nor Search mode
@@ -78,7 +79,7 @@ def main():
 
     # Check model
     if config.NO_MM_MODEL:
-        log(f"ERROR: Lamella segmentation model could not be found! Please import it using the SPACEmodel command!")
+        log(f"ERROR: {utils.modelNotFoundMessage('Lamella segmentation model', config.MM_model_folder)}")
         return
 
     # Setup dir

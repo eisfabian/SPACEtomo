@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/05/31
 # Revision:     v1.4
-# Last Change:  2026/11/19: no targets file when target setup failed
+# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+#               2026/11/19: no targets file when target setup failed
 #               2026/11/14: fixed realignment of reloaded grid without IM maps
 #               2026/11/08: DUMMY mode runs the real classes with the simulated microscope
 #               2026/11/06: fixed external monitoring never being called while waiting for files
@@ -119,7 +120,7 @@ def main():
 
     # Check model
     if config.NO_MM_MODEL:
-        log(f"ERROR: Lamella segmentation model could not be found! Please import it using the SPACEmodel command!")
+        log(f"ERROR: {utils.modelNotFoundMessage('Lamella segmentation model', config.MM_model_folder)}")
         return
     
     # Check multi-grid status

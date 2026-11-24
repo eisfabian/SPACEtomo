@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2024/08/14
 # Revision:     v1.4
-# Last Change:  2026/11/19: fixed excluded lamella classes not applied on first detection
+# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+#               2026/11/19: fixed excluded lamella classes not applied on first detection
 #               2026/11/07: fixed BBox.scale shifting the box and padding less than the factor
 #               2026/02/04: added support for saving and loading custom box names
 #               2025/01/10: Refactored findLamellae to account for both local and external runs
@@ -38,7 +39,7 @@ class WGModel:
             from ultralytics import YOLO, settings
             model_file = Path(config.WG_model_file)
             if not model_file.exists():
-                raise FileNotFoundError("Lamella detection model file does not exist! Please import a model using the SPACEmodel command!")
+                raise FileNotFoundError(utils.modelNotFoundMessage("Lamella detection model", model_file))
             self.model = YOLO(Path(config.WG_model_file))
             settings.update({'sync': False})    # no tracking by google analytics
 

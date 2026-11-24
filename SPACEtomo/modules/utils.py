@@ -3,7 +3,8 @@
 # Purpose:      Functions for utilities needed by other packages and scripts.
 # Author:       Fabian Eisenstein
 # Created:      2024/07/18
-# Last Change:  2026/11/08: removed dummy_skip and dummy_replace
+# Last Change:  2026/11/24: added modelNotFoundMessage pointing to the Python environment (#10)
+#               2026/11/08: removed dummy_skip and dummy_replace
 #               2026/06/28: keep fast toNumpy path on newer Pillow by passing setimage extents
 #               2026/03/06: fixed castString function for Windows, added file check functions
 #               2025/02/12: added alignCC
@@ -247,6 +248,14 @@ def saveSettings(file, vars, start="automation_level", end="external_map_dir"):
             break
     with open(file, "w") as f:
         config.write(f)
+
+def modelNotFoundMessage(model_name, path):
+    """Explains a missing model. Most common cause: SerialEM runs a different Python environment (PathToPython) than the one the model was imported into."""
+
+    return (f"{model_name} could not be found [{path}]! "
+            f"SPACEtomo is running from [{Path(__file__).parent.parent}] in the Python environment [{sys.prefix}]. "
+            f"If 'SPACEmodel list' shows the model, it was imported into a different environment: make sure PathToPython in SerialEMproperties.txt points to the environment SPACEtomo is installed in. "
+            f"Otherwise, import the model using the SPACEmodel command!")
 
 def loadSettings(file):
     if file.exists():

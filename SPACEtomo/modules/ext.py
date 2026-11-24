@@ -6,7 +6,8 @@
 # Author:       Fabian Eisenstein
 # Created:      2023/10/04
 # Revision:     v1.2dev
-# Last Change:  2026/11/08: DUMMY mode segments maps with the ground truth of the synthetic grid
+# Last Change:  2026/11/24: missing model error names the Python environment (#10)
+#               2026/11/08: DUMMY mode segments maps with the ground truth of the synthetic grid
 #               2024/08/21: removed SPACE_DIR, fixed map staying in run list when error is detected
 #               2024/07/31: allowed for empty seg to be 1x1 image
 #               2024/07/25: added overlap when tiling in findLamellae function
@@ -73,7 +74,7 @@ class MMModel:
             self.dir = Path(alt_model_dir)
 
         if not self.dir.exists() or not (self.dir / "dataset.json").exists():
-            raise FileNotFoundError("Lamella segmentation model does not exist! Please import a model using the SPACEmodel command!")
+            raise FileNotFoundError(utils.modelNotFoundMessage("Lamella segmentation model", self.dir))
 
         # Get all classes from model folder
         with open(self.dir / "dataset.json", "r") as f:
